@@ -81,12 +81,17 @@ def fixture():
         "unbound_active_holders": 0,
         "slots": slots, "events": ev,
     }
-    entries = [
-        {"leaf_index": leaf, "historical_index": row["index"],
-         "source_account": row["source_account"], "beneficiary": row["beneficiary"],
-         "units": row["units"], "binding_nonce": row["binding_nonce"]}
-        for leaf, row in enumerate(slots) if int(row["units"]) > 0
-    ]
+    entries = []
+    for row in slots:
+        if int(row["units"]) > 0:
+            entries.append({
+                "leaf_index": len(entries),  # dense positive-only Merkle leaf
+                "historical_index": row["index"],  # never reassign source slot
+                "source_account": row["source_account"],
+                "beneficiary": row["beneficiary"],
+                "units": row["units"],
+                "binding_nonce": row["binding_nonce"],
+            })
     return snapshot, canonical.build(copy.deepcopy(header), entries)
 
 class ReconciliationTests(unittest.TestCase):
