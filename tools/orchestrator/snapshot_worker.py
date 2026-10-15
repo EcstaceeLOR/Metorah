@@ -121,6 +121,51 @@ def _load_json(value: Any) -> Any:
     return json.loads(value) if isinstance(value, str) else value
 
 
+def verify_partition_records(
+    checkpoint: VerifiedCheckpoint,
+    records: list[HolderRecord],
+    start_index: int,
+    end_index: int,
+    verifier: Callable[[VerifiedCheckpoint, HolderRecord], VerifiedHolder | None],
+) -> list[VerifiedHolder]:
+    """Fail closed unless every exact source index/value is verified against the pinned root."""
+    if not isinstance(records, list) or len(records) != end_index - start_index:
+        raise SnapshotError("INCOMPLETE_PARTITION")
+    if any(not isinstance(item, HolderRecord) for item in records):
+        raise SnapshotError("INVALID_HOLDER_RECORD")
+    if [item.source_index for item in records] != list(range(start_index, end_index)):
+        raise SnapshotError("NONCONTIGUOUS_PARTITION")
+    verified: list[VerifiedHolder] = []
+    seen_accounts: set[bytes] = set()
+    for record in records:
+        if type(record.amount) is not int or not 0 <= record.amount <= 10**78 - 1:
+            raise SnapshotError("INVALID_HOLDER_AMOUNT")
+        if not isinstance(record.source_account_id, bytes) or not 1 <= len(record.source_account_id) <= 64:
+            raise SnapshotError("INVALID_SOURCE_ACCOUNT")
+        if not isinstance(record.storage_key, bytes) or not 1 <= len(record.storage_key) <= 512:
+            raise SnapshotError("INVALID_STORAGE_KEY")
+        if not isinstance(record.proof_bundle, bytes) or not record.proof_bundle:
+            raise SnapshotError("MISSING_PROOF_BUNDLE")
+        if record.source_account_id in seen_accounts:
+            raise SnapshotError("DUPLICATE_SOURCE_ACCOUNT")
+        seen_accounts.add(record.source_account_id)
+        result = verifier(checkpoint, record)
+        if not isinstance(result, VerifiedHolder):
+            raise SnapshotError("STORAGE_PROOF_REJECTED")
+        if (
+            result.source_index != record.source_index
+            or result.source_account_id != record.source_account_id
+            or result.storage_key != record.storage_key
+            or result.amount != record.amount
+        ):
+            raise SnapshotError("VERIFIED_VALUE_MISMATCH")
+        _digest(result.proof_digest, "proof_digest")
+        if result.proof_digest != sha256(record.proof_bundle).digest():
+            raise SnapshotError("PROOF_BUNDLE_DIGEST_MISMATCH")
+        verified.append(result)
+    return verified
+
+
 class SnapshotWorker:
     def __init__(self, connection_factory: Callable[[], Any]):
         self._connect = connection_factory
@@ -476,44 +521,8 @@ class SnapshotWorker:
                 self._close(connection, cursor, exc)
             raise
 
-        if not isinstance(records, list) or len(records) != end - start:
-            self._fail_run(run_id, partition_index, worker_id, "INCOMPLETE_PARTITION",
-                           {"expected": end - start, "actual": len(records) if isinstance(records, list) else None})
-            raise SnapshotError("INCOMPLETE_PARTITION")
-        if any(not isinstance(item, HolderRecord) for item in records):
-            self._fail_run(run_id, partition_index, worker_id, "INVALID_HOLDER_RECORD")
-            raise SnapshotError("INVALID_HOLDER_RECORD")
-        if [item.source_index for item in records] != list(range(start, end)):
-            self._fail_run(run_id, partition_index, worker_id, "NONCONTIGUOUS_PARTITION")
-            raise SnapshotError("NONCONTIGUOUS_PARTITION")
-
-        verified: list[VerifiedHolder] = []
-        seen_accounts: set[bytes] = set()
         try:
-            for record in records:
-                if type(record.amount) is not int or not 0 <= record.amount <= 10**78 - 1:
-                    raise SnapshotError("INVALID_HOLDER_AMOUNT")
-                if not isinstance(record.source_account_id, bytes) or not 1 <= len(record.source_account_id) <= 64:
-                    raise SnapshotError("INVALID_SOURCE_ACCOUNT")
-                if not isinstance(record.storage_key, bytes) or not 1 <= len(record.storage_key) <= 512:
-                    raise SnapshotError("INVALID_STORAGE_KEY")
-                if not isinstance(record.proof_bundle, bytes) or not record.proof_bundle:
-                    raise SnapshotError("MISSING_PROOF_BUNDLE")
-                if record.source_account_id in seen_accounts:
-                    raise SnapshotError("DUPLICATE_SOURCE_ACCOUNT")
-                seen_accounts.add(record.source_account_id)
-                result = verify_holder(checkpoint, record)
-                if not isinstance(result, VerifiedHolder):
-                    raise SnapshotError("STORAGE_PROOF_REJECTED")
-                if (
-                    result.source_index != record.source_index
-                    or result.source_account_id != record.source_account_id
-                    or result.storage_key != record.storage_key
-                    or result.amount != record.amount
-                ):
-                    raise SnapshotError("VERIFIED_VALUE_MISMATCH")
-                _digest(result.proof_digest, "proof_digest")
-                verified.append(result)
+            verified = verify_partition_records(checkpoint, records, start, end, verify_holder)
         except SnapshotRetryableError as exc:
             retry_queued = self.retry_partition(run_id, partition_index, worker_id, exc.code)
             return {"run_id": run_id, "partition_index": partition_index,
