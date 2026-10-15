@@ -58,11 +58,16 @@ contract BackedTokenSettlement {
         if (totalSettled + amount > totalFunded || totalSettled + amount > allocationCap) revert InsufficientBacking();
 
         uint256 beforeBalance = token.balanceOf(address(this));
+        uint256 beneficiaryBefore = token.balanceOf(beneficiary);
         settledClaim[claimId] = true;
         totalSettled += amount;
         _safeTransfer(beneficiary, amount);
         uint256 afterBalance = token.balanceOf(address(this));
-        if (afterBalance > beforeBalance || beforeBalance - afterBalance != amount) revert UnsupportedTokenBehavior();
+        uint256 beneficiaryAfter = token.balanceOf(beneficiary);
+        if (afterBalance > beforeBalance || beforeBalance - afterBalance != amount ||
+            beneficiaryAfter < beneficiaryBefore || beneficiaryAfter - beneficiaryBefore != amount) {
+            revert UnsupportedTokenBehavior();
+        }
         emit Settled(claimId, beneficiary, amount, totalSettled);
     }
 
