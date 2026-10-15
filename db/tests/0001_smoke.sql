@@ -71,6 +71,15 @@ INSERT INTO claim_receipts (
 );
 INSERT INTO migration_state_events (migration_id, from_state, to_state, actor_type, actor_id, reason_code)
 VALUES ('00000000-0000-4000-8000-000000000006', 'draft', 'frozen', 'user', 'operator@example.test', 'source-freeze-confirmed');
+
+BEGIN;
+SELECT set_config('metorah.actor_type', 'user', true);
+SELECT set_config('metorah.actor_id', 'operator@example.test', true);
+SELECT set_config('metorah.reason_code', 'verification-started', true);
+UPDATE migrations SET status = 'verifying', version = version + 1
+WHERE id = '00000000-0000-4000-8000-000000000006';
+COMMIT;
+
 INSERT INTO audit_events (
  tenant_id, actor_user_id, actor_type, event_type, entity_type, entity_id, event_hash, payload
 ) VALUES (
@@ -81,9 +90,10 @@ INSERT INTO audit_events (
 
 DO $$
 BEGIN
-    IF (SELECT count(*) FROM migrations) <> 1 THEN RAISE EXCEPTION 'migration row missing'; END IF;
+    IF (SELECT count(*) FROM migrations WHERE status = 'verifying' AND version = 2) <> 1 THEN RAISE EXCEPTION 'migration status transition missing'; END IF;
     IF (SELECT count(*) FROM verified_evidence) <> 1 THEN RAISE EXCEPTION 'verified evidence row missing'; END IF;
     IF (SELECT count(*) FROM claims WHERE state = 'settled') <> 1 THEN RAISE EXCEPTION 'settled claim missing'; END IF;
     IF (SELECT count(*) FROM audit_events) <> 1 THEN RAISE EXCEPTION 'audit row missing'; END IF;
+    IF (SELECT count(*) FROM migration_state_events WHERE migration_id = '00000000-0000-4000-8000-000000000006') <> 2 THEN RAISE EXCEPTION 'status transition was not recorded atomically'; END IF;
 END;
 $$;
