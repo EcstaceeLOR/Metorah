@@ -181,6 +181,39 @@ mod metorah_source_ledger {
             output
         }
 
+        /// Atomically read a snapshot *summary* at one source runtime state.
+        /// The caller must pin reads to a finalized block and authenticate
+        /// storage proofs independently (#27–#29); RPC views are not proofs.
+        #[ink(message)]
+        pub fn registry_snapshot(&self) -> (bool, [u8; 32], u8, Balance, Balance, u32, u32) {
+            (
+                self.frozen,
+                self.asset_id,
+                self.decimals,
+                self.max_supply,
+                self.total_supply,
+                self.holder_count,
+                self.active_holder_count,
+            )
+        }
+
+        /// Explicit index on each row makes skipped registry slots detectable.
+        /// Includes zero-balance tombstones; does not filter unclaimed holders.
+        #[ink(message)]
+        pub fn holder_page_indexed(&self, start: u32, limit: u32) -> Vec<(u32, AccountId, Balance)> {
+            let end = core::cmp::min(
+                self.holder_count,
+                start.saturating_add(core::cmp::min(limit, PAGE_LIMIT)),
+            );
+            let mut page = Vec::new();
+            for index in start..end {
+                if let Some(account) = self.holders.get(index) {
+                    page.push((index, account, self.balance_of_ref(&account)));
+                }
+            }
+            page
+        }
+
         fn balance_of_ref(&self, account: &AccountId) -> Balance {
             self.balances.get(account).unwrap_or(0)
         }
@@ -591,6 +624,57 @@ mod metorah_source_ledger {
             assert_eq!(positive, l.active_holder_count());
             assert_eq!(l.holder_count(), 3);
         }
+        #[ink::test]
+        fn snapshot_summary_tracks_exact_counts_and_supply() {
+            let a = accounts();
+            let mut l = seeded();
+            assert_eq!(l.registry_snapshot(), (false, [7; 32], 12, 1_000, 100, 2, 2));
+            caller(a.bob);
+            l.burn(40).unwrap();
+            assert_eq!(l.registry_snapshot(), (false, [7; 32], 12, 1_000, 60, 2, 1));
+            caller(a.alice);
+            l.freeze().unwrap();
+            assert_eq!(l.registry_snapshot(), (true, [7; 32], 12, 1_000, 60, 2, 1));
+        }
+
+        #[ink::test]
+        fn indexed_pages_preserve_tombstones_and_exact_positions() {
+            let a = accounts();
+            let mut l = seeded();
+            caller(a.bob);
+            l.burn(40).unwrap();
+            assert_eq!(l.holder_page_indexed(0, 64), vec![
+                (0, a.alice, 60),
+                (1, a.bob, 0),
+            ]);
+            assert_eq!(l.holder_page_indexed(1, 1), vec![(1, a.bob, 0)]);
+            assert!(l.holder_page_indexed(2, 64).is_empty());
+            assert!(l.holder_page_indexed(0, 0).is_empty());
+            caller(a.alice);
+            l.mint(a.bob, 5).unwrap();
+            assert_eq!(l.holder_page_indexed(1, 1), vec![(1, a.bob, 5)]);
+            assert_eq!(l.holder_count(), 2);
+            assert_eq!(l.active_holder_count(), 2);
+        }
+
+        #[ink::test]
+        fn indexed_pages_are_bounded_and_contiguous() {
+            let a = accounts();
+            let mut l = seeded();
+            // Three existing accounts; a re-used account cannot add an index.
+            l.mint(a.charlie, 1).unwrap();
+            assert_eq!(l.holder_page_indexed(0, u32::MAX), vec![
+                (0, a.alice, 60),
+                (1, a.bob, 40),
+                (2, a.charlie, 1),
+            ]);
+            assert_eq!(l.holder_page_indexed(1, 2), vec![
+                (1, a.bob, 40),
+                (2, a.charlie, 1),
+            ]);
+            assert!(l.holder_page_indexed(u32::MAX, u32::MAX).is_empty());
+        }
+
         #[ink::test]
         fn errors_do_not_emit_events() {
             let a = accounts();
