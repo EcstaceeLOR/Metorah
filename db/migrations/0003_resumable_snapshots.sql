@@ -191,12 +191,85 @@ BEGIN
                 USING ERRCODE = '23514';
         END IF;
     END IF;
+    IF NEW.status = 'completed' THEN
+        IF (SELECT count(*) FROM snapshot_holders WHERE run_id=NEW.run_id AND partition_index=NEW.partition_index) <> NEW.processed_count
+           OR COALESCE((SELECT sum(amount) FROM snapshot_holders WHERE run_id=NEW.run_id AND partition_index=NEW.partition_index), 0) <> NEW.amount_sum THEN
+            RAISE EXCEPTION 'completed partition metrics must match its immutable holder rows'
+                USING ERRCODE = '23514';
+        END IF;
+    END IF;
     NEW.updated_at := now();
     RETURN NEW;
 END;
 $$;
 CREATE TRIGGER snapshot_partitions_guard BEFORE UPDATE ON snapshot_partitions
 FOR EACH ROW EXECUTE FUNCTION guard_snapshot_partition_update();
+
+CREATE FUNCTION guard_snapshot_holder_insert() RETURNS trigger
+LANGUAGE plpgsql AS $
+DECLARE run_state text; partition_state text; range_start integer; range_end integer;
+BEGIN
+    SELECT r.status, p.status, p.start_index, p.end_index
+    INTO run_state, partition_state, range_start, range_end
+    FROM snapshot_runs r JOIN snapshot_partitions p ON p.run_id=r.id
+    WHERE r.id=NEW.run_id AND p.partition_index=NEW.partition_index
+    FOR SHARE OF r, p;
+    IF run_state IS DISTINCT FROM 'scanning' OR partition_state IS DISTINCT FROM 'leased' THEN
+        RAISE EXCEPTION 'holder rows may only be inserted for a leased partition in a scanning run'
+            USING ERRCODE = '23514';
+    END IF;
+    IF NEW.source_index < range_start OR NEW.source_index >= range_end THEN
+        RAISE EXCEPTION 'holder source index is outside its partition range'
+            USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END;
+$;
+CREATE TRIGGER snapshot_holders_insert_guard BEFORE INSERT ON snapshot_holders
+FOR EACH ROW EXECUTE FUNCTION guard_snapshot_holder_insert();
+
+CREATE FUNCTION guard_snapshot_reconciliation_insert() RETURNS trigger
+LANGUAGE plpgsql AS $
+DECLARE run_row snapshot_runs%ROWTYPE; holder_count bigint; holder_total numeric(78,0);
+BEGIN
+    SELECT * INTO run_row FROM snapshot_runs WHERE id=NEW.run_id FOR UPDATE;
+    IF NOT FOUND OR run_row.status <> 'reconciling' THEN
+        RAISE EXCEPTION 'snapshot reconciliation requires a reconciling run'
+            USING ERRCODE = '23514';
+    END IF;
+    IF NEW.pinned_block_hash IS DISTINCT FROM run_row.pinned_block_hash
+       OR NEW.expected_holder_count <> run_row.expected_holder_count
+       OR NEW.expected_total_supply <> run_row.expected_total_supply THEN
+        RAISE EXCEPTION 'reconciliation commitment does not match the pinned run'
+            USING ERRCODE = '23514';
+    END IF;
+    IF EXISTS (SELECT 1 FROM snapshot_partitions WHERE run_id=NEW.run_id AND status <> 'completed') THEN
+        RAISE EXCEPTION 'all snapshot partitions must be complete before reconciliation'
+            USING ERRCODE = '23514';
+    END IF;
+    SELECT count(*), COALESCE(sum(amount), 0) INTO holder_count, holder_total
+    FROM snapshot_holders WHERE run_id=NEW.run_id;
+    IF NEW.actual_holder_count <> holder_count OR NEW.actual_total_supply <> holder_total THEN
+        RAISE EXCEPTION 'reconciliation totals must match persisted holder rows'
+            USING ERRCODE = '23514';
+    END IF;
+    IF NEW.outcome = 'verified' AND (
+        NEW.actual_holder_count <> NEW.expected_holder_count
+        OR NEW.actual_total_supply <> NEW.expected_total_supply
+        OR cardinality(NEW.mismatch_codes) <> 0
+    ) THEN
+        RAISE EXCEPTION 'verified reconciliation requires complete count, total and no mismatch codes'
+            USING ERRCODE = '23514';
+    END IF;
+    IF NEW.outcome = 'failed' AND cardinality(NEW.mismatch_codes) = 0 THEN
+        RAISE EXCEPTION 'failed reconciliation must include mismatch codes'
+            USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END;
+$;
+CREATE TRIGGER snapshot_reconciliation_insert_guard BEFORE INSERT ON snapshot_reconciliations
+FOR EACH ROW EXECUTE FUNCTION guard_snapshot_reconciliation_insert();
 
 CREATE FUNCTION guard_migration_snapshot_gate() RETURNS trigger
 LANGUAGE plpgsql AS $$
