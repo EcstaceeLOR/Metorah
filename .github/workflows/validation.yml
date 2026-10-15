@@ -76,3 +76,26 @@ jobs:
           test -s contracts/wasm/toolchain-smoke/target/ink/metorah_toolchain_smoke.wasm
           test -s contracts/wasm/toolchain-smoke/target/ink/metorah_toolchain_smoke.contract
           sha256sum contracts/wasm/toolchain-smoke/target/ink/metorah_toolchain_smoke.*
+
+  wasm-source-ledger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.90.0
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy, rust-src
+      - run: rustc --version && cargo --version
+      - name: Generate source-ledger dependency lock
+        run: |
+          cargo generate-lockfile --manifest-path contracts/wasm/source-ledger/Cargo.toml
+          echo "METORAH_SOURCE_LOCK_BEGIN"
+          base64 -w0 contracts/wasm/source-ledger/Cargo.lock
+          echo
+          echo "METORAH_SOURCE_LOCK_END"
+      - name: ink! source ledger unit tests
+        run: cargo test --manifest-path contracts/wasm/source-ledger/Cargo.toml --locked -- --nocapture
+      - name: Source ledger compile check
+        run: cargo check --manifest-path contracts/wasm/source-ledger/Cargo.toml --locked
