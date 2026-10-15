@@ -40,7 +40,7 @@ test('tampered recipient, source, nonce, index or amounts are rejected', () => {
     switch (field) {
       case 'source_account': changed.source_account = '0x' + '99'.repeat(32); break;
       case 'beneficiary': changed.beneficiary = '0x' + '99'.repeat(20); break;
-      case 'units': changed.units = '11'; break;
+      case 'units': changed.units = '12'; break;
       case 'binding_nonce': changed.binding_nonce = '3'; break;
       case 'historical_index': changed.historical_index = 1; break;
     }

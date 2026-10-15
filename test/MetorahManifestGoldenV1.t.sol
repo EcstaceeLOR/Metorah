@@ -129,31 +129,37 @@ contract MetorahManifestGoldenV1Test {
         root = layer[0];
     }
 
+    struct ExpectedHashes {
+        bytes32 headerHash;
+        bytes32 firstLeaf;
+        bytes32 lastLeaf;
+        bytes32 root;
+        bytes32 manifest;
+    }
+
+    function _expectedStruct(uint32 n) internal pure returns (ExpectedHashes memory e) {
+        (e.headerHash, e.firstLeaf, e.lastLeaf, e.root, e.manifest) = _expected(n);
+    }
+
+    function _verifyGoldenSize(uint32 n) internal {
+        ExpectedHashes memory e = _expectedStruct(n);
+        bytes32 hd = verifier.hashHeader(_header(n));
+        assert(hd == e.headerHash);
+        (bytes32 root, bytes32 first, bytes32 last, bytes32[] memory p0, bytes32[] memory pn) = _tree(n, hd);
+        assert(first == e.firstLeaf);
+        assert(last == e.lastLeaf);
+        assert(root == e.root);
+        assert(verifier.hashManifest(hd, root) == e.manifest);
+        assert(verifier.verify(hd, _entry(0), p0, root, n));
+        assert(verifier.verify(hd, _entry(n - 1), pn, root, n));
+        if (n == 3 || n == 257) assert(pn[0] == last);
+    }
+
     function testGoldenVectorsOneTwoThreeAndLarge() public {
-        uint32[4] memory sizes = [uint32(1), uint32(2), uint32(3), uint32(257)];
-        for (uint256 i; i < sizes.length; ++i) {
-            uint32 n = sizes[i];
-            MetorahManifestV1.Header memory header = _header(n);
-            (
-                bytes32 expectedHeader,
-                bytes32 expectedFirst,
-                bytes32 expectedLast,
-                bytes32 expectedRoot,
-                bytes32 expectedManifest
-            ) = _expected(n);
-            bytes32 hd = verifier.hashHeader(header);
-            assert(hd == expectedHeader);
-            (bytes32 root, bytes32 first, bytes32 last, bytes32[] memory p0, bytes32[] memory pn) = _tree(n, hd);
-            assert(first == expectedFirst);
-            assert(last == expectedLast);
-            assert(root == expectedRoot);
-            assert(verifier.hashManifest(hd, root) == expectedManifest);
-            assert(verifier.verify(hd, _entry(0), p0, root, n));
-            assert(verifier.verify(hd, _entry(n - 1), pn, root, n));
-            if (n == 3 || n == 257) {
-                assert(pn[0] == last);
-            }
-        }
+        _verifyGoldenSize(1);
+        _verifyGoldenSize(2);
+        _verifyGoldenSize(3);
+        _verifyGoldenSize(257);
     }
 
     function testRejectTamperedBeneficiarySourceIndexOrAmount() public {
