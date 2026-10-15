@@ -80,6 +80,18 @@ def _digest(value: bytes, name: str) -> bytes:
     return value
 
 
+def partition_ranges(holder_count: int, partition_size: int = 64) -> list[tuple[int, int, int]]:
+    """Return exact half-open source-index ranges with no overlap or gaps."""
+    if type(holder_count) is not int or not 1 <= holder_count <= 1_000_000:
+        raise SnapshotError("HOLDER_COUNT_OUT_OF_RANGE")
+    if type(partition_size) is not int or not 1 <= partition_size <= 256:
+        raise SnapshotError("INVALID_PARTITION_SIZE")
+    return [
+        (index, start, min(start + partition_size, holder_count))
+        for index, start in enumerate(range(0, holder_count, partition_size))
+    ]
+
+
 def _validate_checkpoint(checkpoint: VerifiedCheckpoint) -> None:
     if not isinstance(checkpoint, VerifiedCheckpoint):
         raise SnapshotError("UNVERIFIED_CHECKPOINT", "A trusted finality verifier must return VerifiedCheckpoint.")
@@ -219,15 +231,13 @@ class SnapshotWorker:
                  commitment.expected_holder_count, commitment.expected_total_supply),
             )
             run_id = str(cursor.fetchone()[0])
-            partition_index = 0
-            for start in range(0, commitment.expected_holder_count, partition_size):
-                end = min(start + partition_size, commitment.expected_holder_count)
+            ranges = partition_ranges(commitment.expected_holder_count, partition_size)
+            for partition_index, start, end in ranges:
                 cursor.execute(
                     "INSERT INTO snapshot_partitions (run_id, partition_index, start_index, end_index) "
                     "VALUES (%s,%s,%s,%s)",
                     (run_id, partition_index, start, end),
                 )
-                partition_index += 1
             cursor.execute("UPDATE snapshot_runs SET status='scanning' WHERE id=%s", (run_id,))
             self._close(connection, cursor)
             return {
@@ -236,7 +246,7 @@ class SnapshotWorker:
                 "pinned_block_hash": checkpoint.block_hash.hex(),
                 "expected_holder_count": commitment.expected_holder_count,
                 "expected_total_supply": str(commitment.expected_total_supply),
-                "partition_count": partition_index, "resumed": False,
+                "partition_count": len(ranges), "resumed": False,
             }
         except BaseException as exc:
             self._close(connection, cursor, exc)
