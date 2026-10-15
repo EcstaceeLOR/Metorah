@@ -81,6 +81,18 @@ def validate_upload(actor: ArtifactActor, artifact_kind: str, classification: st
         raise ArtifactError(403, "forbidden", "Actor role cannot upload this artifact kind.")
 
 
+def can_download(actor: ArtifactActor, classification: str) -> bool:
+    """Return whether an authenticated tenant actor may read this classification."""
+    return (
+        isinstance(actor, ArtifactActor)
+        and bool(actor.tenant_id)
+        and bool(actor.subject)
+        and bool(actor.roles)
+        and classification in DOWNLOAD_ROLES
+        and bool(DOWNLOAD_ROLES[classification].intersection(actor.roles))
+    )
+
+
 def verify_artifact_content(content: bytes, content_sha256: str, expected_size: int, metadata: dict, expected_version: str | None = None) -> None:
     """Reject any read whose bytes, size, or immutable object metadata do not match."""
     if not re.fullmatch(r"[0-9a-f]{64}", content_sha256):
@@ -324,7 +336,7 @@ class ArtifactStore:
             if row is None:
                 raise ArtifactError(404, "artifact_not_found")
             object_id, digest, size, media_type, classification, key, version, retention_until, kind, revision, status, legal_hold = row
-            if classification not in DOWNLOAD_ROLES or not DOWNLOAD_ROLES[classification].intersection(actor.roles):
+            if not can_download(actor, str(classification)):
                 self._access_event(cursor, actor.tenant_id, migration_id, str(object_id), actor.subject,
                                    "denied", "denied", request_id, {"code": "forbidden"})
                 self._close(connection, cursor)
