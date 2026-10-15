@@ -320,6 +320,7 @@ class ResumableAcquisition:
             "plan_digest": self.plan_digest,
             "plan": self.plan,
             "batches": [],
+            "head_watermarks": {},
             "can_activate": False,
             "can_claim": False,
         })
@@ -355,6 +356,20 @@ class ResumableAcquisition:
             raise QuorumError("INVALID_JOURNAL_BATCHES")
         offset = 0
         allowed = {p.provider_id for p in self.quorum.providers}
+        watermarks = doc["head_watermarks"]
+        if (type(watermarks) is not dict
+                or not set(watermarks).issubset(allowed)
+                or any(type(v) is not int or not 0 <= v <= (2**64 - 1)
+                       for v in watermarks.values())):
+            raise QuorumError("INVALID_JOURNAL_HEAD_WATERMARKS")
+        # In-memory checks are reset on process restart. Persist the highest
+        # finalized height ever observed for EACH configured provider so a
+        # restarted process cannot silently accept regressed finality.
+        for provider_id, previous in watermarks.items():
+            current = self.quorum._head_high_water.get(provider_id)
+            if current is not None and current < previous:
+                raise QuorumError("FINALIZED_HEAD_REGRESSION_ACROSS_RESUME")
+            self.quorum._head_high_water[provider_id] = max(previous, current or 0)
         for batch in batches:
             if (type(batch) is not dict
                     or set(batch) != {"offset", "records", "agreeing_providers"}
@@ -423,8 +438,12 @@ class ResumableAcquisition:
             offset += len(chunk)
             if offset == len(self.keys):
                 doc["status"] = STATUS
+            doc["head_watermarks"] = dict(self.quorum._head_high_water)
             self._write(doc)
         self.quorum.observe_quorum()
+        # Persist finalized-head advances seen in this final observation too.
+        doc["head_watermarks"] = dict(self.quorum._head_high_water)
+        self._write(doc)
         report = {
             "schema_version": "metorah-multirpc-report-v1",
             "status": STATUS,

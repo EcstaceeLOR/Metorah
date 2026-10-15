@@ -37,6 +37,8 @@ Every batch:
 
 On resume, the plan digest must match **exactly**, no registry/metadata change is permitted, and **all previously saved keys are read again from a fresh quorum**. A resumed process cannot append data from another block, root, key plan or runtime to an existing journal. The SHA-256 seal is an *accidental corruption checksum*, not an adversary-resistant signature. Even someone able to recompute that checksum cannot change stored values without failing an independent fresh RPC comparison, assuming at least two honest uncolluding respondents.
 
+The journal also stores each provider's **highest previously reported finalized height**. A restarted process refuses a regressed finality height even if the original freeze checkpoint is still present in both histories; this guard survives process crashes and operator retries.
+
 A finished report says only \`MULTI_RPC_STORAGE_CONSISTENT_UNAUTHENTICATED\`. Its flags are always:
 \`genesis_authenticated=false\`, \`finality_cryptographically_verified=false\`, \`trie_membership_verified=false\`, \`operator_independence_verified=false\`, \`can_activate=false\`, \`can_claim=false\`.
 

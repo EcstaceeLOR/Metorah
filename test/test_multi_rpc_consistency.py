@@ -275,6 +275,28 @@ class MultiRPCChaosTests(unittest.TestCase):
         self.fails("FINALIZED_HEAD_REGRESSION",
                    lambda: q.read_batch(["0x02"]))
 
+    def test_finalized_head_regression_across_process_restart_is_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "journal.json"
+            ResumableAcquisition(self.make(), ["0x01"], path).run()
+            new_nodes, providers = sources()
+            for node in new_nodes:
+                node.finalized = h(105)  # still past snapshot 4, but below saved head 6
+            self.fails("FINALIZED_HEAD_REGRESSION_ACROSS_RESUME",
+                       lambda: ResumableAcquisition(
+                           session(providers=providers), ["0x01"], path).run())
+
+    def test_journal_forged_boolean_height_watermark_rejected(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "journal.json"
+            acq = ResumableAcquisition(self.make(), ["0x01"], path)
+            acq.run()
+            doc = json.loads(path.read_text())
+            doc["head_watermarks"]["rpc-1"] = True
+            path.write_text(json.dumps(acq._seal(doc)))
+            self.fails("INVALID_JOURNAL_HEAD_WATERMARKS",
+                       lambda: ResumableAcquisition(self.make(), ["0x01"], path).run())
+
     def test_duplicate_declared_operator_identity_rejected(self):
         providers = self.providers.copy()
         providers[2] = Provider("rpc-3", "operator-1", self.rs[2])
