@@ -11,7 +11,8 @@ The settlement adapter marks a settlement before transferring and relies on EVM 
 - failed token payout rolls back claim and settlement accounting, then allows retry;
 - overlong Merkle proofs rejected before hashing;
 - administrator pause blocks claims without consuming the claim index, and unpause restores claim execution;
-- Foundry fuzz property checks arbitrary positive allocation amounts up to the cap while verifying claimed/settled equality and backing conservation.
+- Foundry fuzz property checks arbitrary positive allocation amounts up to the cap while verifying claimed/settled equality and backing conservation;
+- Foundry stateful invariants assert claims never exceed the authorized allocation, settlement never exceeds funded backing, and ledger totals remain aligned with escrow totals.
 - successful retry pays the exact amount and preserves remaining backing.
 
 ## Limits
