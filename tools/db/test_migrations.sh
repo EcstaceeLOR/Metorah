@@ -26,6 +26,8 @@ expect_failure "audit event UPDATE is forbidden" \
   "${PSQL[@]}" -c "UPDATE audit_events SET payload = '{}'::jsonb WHERE id = 1"
 expect_failure "audit event DELETE is forbidden" \
   "${PSQL[@]}" -c "DELETE FROM audit_events WHERE id = 1"
+expect_failure "audit event TRUNCATE is forbidden" \
+  "${PSQL[@]}" -c "TRUNCATE audit_events"
 expect_failure "verified evidence UPDATE is forbidden" \
   "${PSQL[@]}" -c "UPDATE verified_evidence SET outcome = 'rejected' WHERE id = '00000000-0000-4000-8000-000000000008'"
 expect_failure "migration status change requires actor/reason context" \
