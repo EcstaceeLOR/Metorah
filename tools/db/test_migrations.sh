@@ -33,7 +33,7 @@ expect_failure "audit event TRUNCATE is forbidden" \
 expect_failure "verified evidence UPDATE is forbidden" \
   "${PSQL[@]}" -c "UPDATE verified_evidence SET outcome = 'rejected' WHERE id = '00000000-0000-4000-8000-000000000008'"
 expect_failure "migration status change requires actor/reason context" \
-  "${PSQL[@]}" -c "UPDATE migrations SET status = 'review' WHERE id = '00000000-0000-4000-8000-000000000006'"
+  "${PSQL[@]}" -c "UPDATE migrations SET status = 'frozen' WHERE id = '00000000-0000-4000-8000-000000000006'"
 expect_failure "invalid lifecycle edge is rejected by database trigger" \
   "${PSQL[@]}" -c "UPDATE migrations SET status = 'activated' WHERE id = '00000000-0000-4000-8000-000000000006'"
 expect_failure "outbox event UPDATE is forbidden" \
