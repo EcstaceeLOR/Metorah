@@ -4,6 +4,7 @@ DROP TRIGGER IF EXISTS jobs_outbox_insert ON jobs;
 DROP TRIGGER IF EXISTS jobs_outbox_state ON jobs;
 DROP TRIGGER IF EXISTS jobs_state_guard ON jobs;
 DROP TRIGGER IF EXISTS migrations_status_audit ON migrations;
+DROP TRIGGER IF EXISTS migrations_initial_state_guard ON migrations;
 DROP TRIGGER IF EXISTS outbox_events_append_only ON outbox_events;
 DROP TRIGGER IF EXISTS outbox_events_no_truncate ON outbox_events;
 DROP TRIGGER IF EXISTS job_attempt_events_append_only ON job_attempt_events;
@@ -11,6 +12,7 @@ DROP TRIGGER IF EXISTS job_attempt_events_no_truncate ON job_attempt_events;
 
 DROP FUNCTION IF EXISTS record_job_outbox_event();
 DROP FUNCTION IF EXISTS guard_job_state_transition();
+DROP FUNCTION IF EXISTS guard_migration_initial_state();
 DROP FUNCTION IF EXISTS record_migration_status_transition();
 
 DROP TABLE IF EXISTS job_attempt_events;
