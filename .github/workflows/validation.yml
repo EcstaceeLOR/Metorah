@@ -142,3 +142,11 @@ jobs:
         run: cargo test --manifest-path tools/trie-verifier/Cargo.toml --all-targets --verbose
       - name: Compile isolated offline verifier CLI
         run: cargo build --release --manifest-path tools/trie-verifier/Cargo.toml
+      - name: Export independently reviewable resolved dependency graph
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trie-verifier-cargo-lockfile
+          path: tools/trie-verifier/Cargo.lock
+          if-no-files-found: error
+          retention-days: 14
