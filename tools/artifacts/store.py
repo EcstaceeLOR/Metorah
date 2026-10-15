@@ -81,6 +81,20 @@ def validate_upload(actor: ArtifactActor, artifact_kind: str, classification: st
         raise ArtifactError(403, "forbidden", "Actor role cannot upload this artifact kind.")
 
 
+def verify_artifact_content(content: bytes, content_sha256: str, expected_size: int, metadata: dict) -> None:
+    """Reject any read whose bytes, size, or immutable object metadata do not match."""
+    if not re.fullmatch(r"[0-9a-f]{64}", content_sha256):
+        raise ArtifactError(502, "artifact_integrity_failure")
+    if (
+        not isinstance(content, bytes)
+        or len(content) != expected_size
+        or sha256(content).hexdigest() != content_sha256
+        or metadata.get("sha256") != content_sha256
+        or int(metadata.get("content_length", len(content))) != expected_size
+    ):
+        raise ArtifactError(502, "artifact_integrity_failure")
+
+
 class S3CompatibleBackend:
     """Minimal boto3-compatible backend; injected client keeps the core dependency-free."""
 
@@ -120,6 +134,7 @@ class S3CompatibleBackend:
                 metadata.get("sha256") == digest_hex
                 and metadata.get("classification") == classification
                 and int(head.get("ContentLength", -1)) == len(content)
+                and head.get("ContentType") == media_type
                 and version_id and version_id != "null"
             ):
                 return str(version_id)
@@ -329,16 +344,14 @@ class ArtifactStore:
 
         try:
             content, metadata = self._backend.get(str(key), str(version))
-            actual_digest = sha256(content).digest()
-            if (
-                actual_digest != bytes(digest)
-                or len(content) != int(size)
-                or metadata.get("sha256") != content_sha256
-                or int(metadata.get("content_length", len(content))) != int(size)
-            ):
+            try:
+                verify_artifact_content(content, content_sha256, int(size), metadata)
+                if sha256(content).digest() != bytes(digest):
+                    raise ArtifactError(502, "artifact_integrity_failure")
+            except ArtifactError:
                 self._access_event_for_download(actor, migration_id, str(object_id), request_id,
                                                 "integrity_failed", "failed", {"code": "content_hash_mismatch"})
-                raise ArtifactError(502, "artifact_integrity_failure")
+                raise
         except ArtifactError:
             raise
         except Exception as exc:
@@ -371,7 +384,7 @@ class ArtifactStore:
             raise ArtifactError(403, "forbidden")
         if not re.fullmatch(r"[0-9a-f]{64}", content_sha256) or classification not in CLASSIFICATIONS:
             raise ArtifactError(400, "invalid_artifact_reference")
-        if type(enabled) is not bool or not reason_code.strip():
+        if type(enabled) is not bool or not isinstance(reason_code, str) or not reason_code.strip():
             raise ArtifactError(400, "invalid_retention_action")
         action = "legal_hold_added" if enabled else "legal_hold_released"
         connection, cursor = self._open()
