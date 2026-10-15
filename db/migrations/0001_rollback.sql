@@ -16,6 +16,7 @@ DROP TABLE IF EXISTS chains;
 DROP TABLE IF EXISTS tenant_memberships;
 DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS tenants;
+DROP FUNCTION IF EXISTS record_migration_status_transition();
 DROP FUNCTION IF EXISTS reject_append_only_mutation();
 
 COMMIT;
