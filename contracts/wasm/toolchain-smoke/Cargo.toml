@@ -2,6 +2,7 @@
 name = "metorah-toolchain-smoke"
 version = "0.1.0"
 edition = "2021"
+authors = ["Metorah Engineering"]
 publish = false
 description = "Compiler-validation ink! fixture only; NOT a migration ledger"
 
