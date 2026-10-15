@@ -25,6 +25,7 @@ READ_ONLY_METHODS = frozenset({
     "state_getRuntimeVersion",
     "state_getMetadata",
     "state_getStorage",
+    "state_getReadProof",
 })
 
 

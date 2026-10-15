@@ -60,3 +60,8 @@ An attacker controlling RPC can return coherent fabricated genesis, finalized he
 - Required for closure: independently obtained and tested real node responses with known finalized headers **and** auditable trust-anchor bootstrap. Unsupported consensus verification may require adding the appropriate maintained Rust light-client verifier and audited verification source.
 
 **Policy:** no production funds, no approved root, no claim entitlement, no auto-merge of a report into release status based on RPC consistency alone.
+
+
+## Issue #28 storage proof boundary
+
+Read-only `state_getReadProof` support and a standalone Parity `sp-trie` V0/V1 verifier are now under development in [STORAGE_TRIE_VERIFICATION.md](STORAGE_TRIE_VERIFICATION.md). Their output cannot upgrade an RPC-reported root into trusted finality or decode unverified Contracts pallet storage. The full #27 trust anchor remains essential.
