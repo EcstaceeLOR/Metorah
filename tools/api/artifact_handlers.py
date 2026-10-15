@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
-from uuid import uuid4
+from uuid import UUID, uuid4
 from typing import Any
 
 from tools.artifacts.store import ArtifactActor, ArtifactError, ArtifactStore
@@ -37,7 +37,12 @@ SAFE_MESSAGES = {
 
 
 def _request_id(value: str | None) -> str:
-    return value if isinstance(value, str) and 0 < len(value) <= 128 else str(uuid4())
+    if isinstance(value, str):
+        try:
+            return str(UUID(value))
+        except ValueError:
+            pass
+    return str(uuid4())
 
 
 def _error_response(error: ArtifactError, request_id: str) -> ArtifactHTTPResponse:
