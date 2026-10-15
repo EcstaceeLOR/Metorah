@@ -1,0 +1,9 @@
+# Issue #38 — integrated backed token claims
+
+`VerifiedTokenClaimLedger` is the production-facing integration path for verified entitlement claims and actual ERC-20 settlement. Deploy the source-binding registry, then the claim ledger, then `BackedTokenSettlement` with the claim ledger as its controller and the approved funding account as funder. Call `configureSettlement` once before proposing evidence. The ledger checks that the adapter controller is itself and that its cap covers the migration allocation.
+
+The evidence root requires an authorized EIP-712 signer quorum and a review delay. Each claim requires activation, a Merkle inclusion proof bound to the migration, chain, ledger, index, source account, beneficiary, and amount, plus an existing source-authorized beneficiary binding. The caller must be that bound beneficiary. Only then does the ledger call the escrow adapter to transfer real tokens. Claim state and allocation accounting revert atomically if token settlement fails.
+
+Amounts are denominated in the supported token's smallest units; this implementation deliberately does not perform decimal conversion or rounding. Use a token whose units and approved migration allocation match exactly. The adapter checks exact funding and recipient balance deltas and rejects fee-on-transfer behavior; rebasing tokens are unsupported. Do not use upgradeable, blacklistable, or otherwise non-standard tokens without a separately reviewed adapter.
+
+This is not proof of Portaldot/Substrate finality. Authorized signers and binding attesters must independently validate source evidence off-chain. Production rollout still requires an audited deployment, operational key controls, reproducible Foundry CI, and verified real-token configuration. Local tests establish contract behavior only, not a live migration or source-chain proof.
