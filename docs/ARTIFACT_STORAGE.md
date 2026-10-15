@@ -30,7 +30,7 @@ The schema seeds versioned policy values:
 | confidential | 50 MiB | 365 days |
 | private_mapping | 10 MiB | 30 days |
 
-Retention is fixed on object creation and enforced by a database trigger. A mapping cannot be stored under a less restrictive classification. Legal holds require a matching append-only retention event; held objects cannot expire or be deleted. The `expire_due` worker first makes due objects inaccessible, then deletes the exact stored object version and records the result. Failed deletions remain expired/inaccessible and can be retried. Configure bucket lifecycle rules as a backstop, not as a replacement for the database retention worker.
+Retention is fixed on object creation and enforced by a database trigger. A mapping cannot be stored under a less restrictive classification. Legal holds require a matching append-only retention event; held objects cannot expire or be deleted. The `expire_due` worker first makes due objects inaccessible, then deletes the exact stored object version and records the result. Failed deletions remain expired/inaccessible and can be retried. Do not configure unconditional S3 expiration on indexed artifact prefixes: that could bypass database legal holds. The database retention worker is the deletion authority; any object-store lifecycle rule must be restricted to a separate staging/orphan prefix that cannot contain indexed artifacts.
 
 If object upload succeeds but the database transaction fails, an unindexed object may remain. Production operations should run an orphan-object reconciliation process and rely on classification-specific lifecycle policies to bound orphan retention. Do not list objects or expose object keys to tenant clients.
 
