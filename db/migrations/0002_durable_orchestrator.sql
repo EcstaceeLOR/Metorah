@@ -174,7 +174,7 @@ END;
 $$;
 
 CREATE FUNCTION guard_job_state_transition() RETURNS trigger
-LANGUAGE plpgsql AS $
+LANGUAGE plpgsql AS $$
 DECLARE allowed boolean := false;
 BEGIN
     IF TG_OP = 'INSERT' THEN
@@ -203,7 +203,7 @@ CREATE TRIGGER jobs_state_guard BEFORE INSERT OR UPDATE OF state ON jobs
 FOR EACH ROW EXECUTE FUNCTION guard_job_state_transition();
 
 CREATE FUNCTION guard_migration_initial_state() RETURNS trigger
-LANGUAGE plpgsql AS $
+LANGUAGE plpgsql AS $$
 BEGIN
     IF NEW.status <> 'draft' OR NEW.version <> 1 THEN
         RAISE EXCEPTION 'new migrations must start in draft at version 1'
