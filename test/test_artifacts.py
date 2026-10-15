@@ -3,6 +3,7 @@ import unittest
 
 from tools.artifacts.store import (
     ArtifactActor,
+    ArtifactDownload,
     ArtifactError,
     S3CompatibleBackend,
     ArtifactStore,
@@ -11,6 +12,7 @@ from tools.artifacts.store import (
     verify_artifact_content,
 )
 from hashlib import sha256
+from tools.api.artifact_handlers import download_artifact_response, upload_artifact_response
 
 
 class FakeS3:
@@ -135,6 +137,55 @@ class ArtifactStorageTests(unittest.TestCase):
             verify_artifact_content(self.content + b"x", digest, len(self.content), metadata)
         with self.assertRaisesRegex(ArtifactError, "artifact_integrity_failure"):
             verify_artifact_content(self.content, digest, len(self.content), {"sha256": "0" * 64})
+
+    def test_download_handler_returns_verified_attachment_without_storage_key(self):
+        content = b"evidence bytes"
+        digest = sha256(content).hexdigest()
+        class FakeStore:
+            def download(self, **kwargs):
+                return ArtifactDownload(
+                    content=content, content_sha256=digest, content_type="application/pdf",
+                    content_size=len(content), classification="public_evidence",
+                    artifact_kind="signed_report", revision=2, integrity_verified=True,
+                )
+        response = download_artifact_response(
+            FakeStore(), self.operator, "migration-1", digest, "signed_report", "request-1"
+        )
+        self.assertEqual(response.status, 200)
+        self.assertEqual(response.body, content)
+        self.assertEqual(response.headers["X-Content-SHA256"], digest)
+        self.assertEqual(response.headers["Cache-Control"], "no-store")
+        self.assertEqual(response.headers["Content-Disposition"], f'attachment; filename="evidence-{digest}.bin"')
+        self.assertNotIn("storage_key", response.headers)
+
+    def test_handler_errors_do_not_expose_backend_details(self):
+        class FailingStore:
+            def download(self, **kwargs):
+                raise ArtifactError(502, "artifact_integrity_failure", "bucket private-internal-name failed")
+        response = download_artifact_response(
+            FailingStore(), self.operator, "migration-1", "a"*64, "proof_bundle", "request-2"
+        )
+        self.assertEqual(response.status, 502)
+        self.assertIn(b"Stored artifact failed integrity verification", response.body)
+        self.assertNotIn(b"private-internal-name", response.body)
+        self.assertEqual(response.headers["X-Request-Id"], "request-2")
+
+    def test_upload_handler_returns_only_public_artifact_metadata(self):
+        class FakeStore:
+            def put(self, **kwargs):
+                return {
+                    "artifact_id": "artifact-1", "content_sha256": "a"*64,
+                    "content_size": len(kwargs["content"]), "classification": kwargs["classification"],
+                    "artifact_kind": kwargs["artifact_kind"], "revision": kwargs["revision"],
+                }
+        response = upload_artifact_response(
+            FakeStore(), self.operator, "migration-1", "proof_bundle", "public_evidence",
+            b"proof", "application/octet-stream", 1, "request-3"
+        )
+        self.assertEqual(response.status, 201)
+        self.assertIn(b'"content_sha256"', response.body)
+        self.assertNotIn(b"storage_key", response.body)
+        self.assertEqual(response.headers["X-Request-Id"], "request-3")
 
     def test_s3_backend_reads_and_deletes_exact_object_version(self):
         client = FakeS3()
