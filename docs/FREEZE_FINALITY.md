@@ -44,3 +44,8 @@ Run these commands at repository root:
     python -m unittest discover -s test -p test_freeze_evidence.py -v
 
 The supplied evidence-reader fixtures and block identifiers are **synthetic**. Do not store them as real source transaction proofs. Issue #23 remains OPEN until real network receipts and independently authenticated finality/storage evidence can be saved and reviewed.
+
+
+## Issue #27 checkpoint observation integration
+
+The standalone [finalized-header adapter](FINALIZED_HEADER_ADAPTER.md) now checks RPC-reported ancestry and enforces the same checkpoint hash for all subsequent `state_getStorage` calls. It **does not** change this freeze observer's unauthenticated evidence into a cryptographic proof; independent consensus finality, trusted genesis, header hashing, trie proofs and runtime governance checks remain release blockers.

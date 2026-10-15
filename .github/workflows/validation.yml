@@ -33,6 +33,8 @@ jobs:
       - run: python -m unittest discover -s test -p test_enumeration.py -v
       - run: python -m unittest discover -s test -p test_bindings.py -v
       - run: python -m unittest discover -s test -p test_freeze_evidence.py -v
+      - run: python -m unittest discover -s test -p test_finalized_headers.py -v
+      - run: python -m unittest discover -s test -p test_finality_transport.py -v
       - run: python -m unittest discover -s test -p test_source_fixture_runner.py -v
       - run: python -m unittest discover -s test -p test_manifest_v1.py -v
       - name: Verify committed 1/2/3/257 holder golden fixture bytes
