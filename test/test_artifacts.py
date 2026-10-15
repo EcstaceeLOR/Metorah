@@ -149,7 +149,7 @@ class ArtifactStorageTests(unittest.TestCase):
                     artifact_kind="signed_report", revision=2, integrity_verified=True,
                 )
         response = download_artifact_response(
-            FakeStore(), self.operator, "migration-1", digest, "signed_report", "request-1"
+            FakeStore(), self.operator, "migration-1", digest, "signed_report", "00000000-0000-4000-8000-000000000101"
         )
         self.assertEqual(response.status, 200)
         self.assertEqual(response.body, content)
@@ -163,12 +163,12 @@ class ArtifactStorageTests(unittest.TestCase):
             def download(self, **kwargs):
                 raise ArtifactError(502, "artifact_integrity_failure", "bucket private-internal-name failed")
         response = download_artifact_response(
-            FailingStore(), self.operator, "migration-1", "a"*64, "proof_bundle", "request-2"
+            FailingStore(), self.operator, "migration-1", "a"*64, "proof_bundle", "00000000-0000-4000-8000-000000000102"
         )
         self.assertEqual(response.status, 502)
         self.assertIn(b"Stored artifact failed integrity verification", response.body)
         self.assertNotIn(b"private-internal-name", response.body)
-        self.assertEqual(response.headers["X-Request-Id"], "request-2")
+        self.assertEqual(response.headers["X-Request-Id"], "00000000-0000-4000-8000-000000000102")
 
     def test_upload_handler_returns_only_public_artifact_metadata(self):
         class FakeStore:
@@ -180,12 +180,12 @@ class ArtifactStorageTests(unittest.TestCase):
                 }
         response = upload_artifact_response(
             FakeStore(), self.operator, "migration-1", "proof_bundle", "public_evidence",
-            b"proof", "application/octet-stream", 1, "request-3"
+            b"proof", "application/octet-stream", 1, "00000000-0000-4000-8000-000000000103"
         )
         self.assertEqual(response.status, 201)
         self.assertIn(b'"content_sha256"', response.body)
         self.assertNotIn(b"storage_key", response.body)
-        self.assertEqual(response.headers["X-Request-Id"], "request-3")
+        self.assertEqual(response.headers["X-Request-Id"], "00000000-0000-4000-8000-000000000103")
 
     def test_s3_backend_reads_and_deletes_exact_object_version(self):
         client = FakeS3()
