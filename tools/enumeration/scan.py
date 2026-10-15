@@ -155,7 +155,9 @@ def scan(
             seen.add(owner)
 
             direct = _read(reader.holder_at, expected_index, pinned)
-            if direct is None or _pair(direct, "MISSING_HOLDER_AT") != (owner, units):
+            if direct is None:
+                raise ScanError("MISSING_HOLDER_AT")
+            if _pair(direct, "MALFORMED_HOLDER_AT") != (owner, units):
                 raise ScanError("HOLDER_AT_DISAGREEMENT")
             owner_index = _read(reader.index_of, owner, pinned)
             if type(owner_index) is not int or owner_index != expected_index:
