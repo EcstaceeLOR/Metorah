@@ -225,7 +225,7 @@ INSERT INTO artifact_objects (
  'test-version-2', now() + interval '30 days', 'retention-v1', 'operator@example.test'
 );
 
-DO $
+DO $$
 BEGIN
     IF (SELECT count(*) FROM migrations WHERE status = 'review' AND version = 5) <> 1 THEN RAISE EXCEPTION 'migration status transition missing'; END IF;
     IF (SELECT count(*) FROM verified_evidence) <> 1 THEN RAISE EXCEPTION 'verified evidence row missing'; END IF;
