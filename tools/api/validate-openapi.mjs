@@ -15,7 +15,9 @@ function resolvePointer(ref) {
       return value[key];
     }, spec);
 }
-function parameterName(parameter) {\n  return parameter.name ?? (parameter.$ref ? resolvePointer(parameter.$ref).name : undefined);\n}\nfunction visit(value) {
+function parameterName(parameter) {
+  return parameter.name ?? (parameter.$ref ? resolvePointer(parameter.$ref).name : undefined);
+}\nfunction visit(value) {
   if (!value || typeof value !== "object") return;
   if (typeof value.$ref === "string") resolvePointer(value.$ref);
   for (const child of Object.values(value)) visit(child);
