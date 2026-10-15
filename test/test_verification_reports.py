@@ -445,6 +445,7 @@ class CommandTests(unittest.TestCase):
             "--expected-tool-build-sha256", BUILD,
         ]), 2)
 
+    @unittest.skipUnless(os.name == "posix", "POSIX 0600 mode is not a Windows ACL policy")
     def test_insecure_key_file_permissions_rejected_without_report(self):
         os.chmod(self.secret, 0o644)
         self.assertEqual(CLI.main(self.args()), 2)
