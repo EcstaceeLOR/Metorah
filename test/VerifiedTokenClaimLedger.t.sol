@@ -141,7 +141,7 @@ contract VerifiedTokenClaimLedgerTest {
         assert(!ok);
     }
 
-    function testFailedTokenTransferRollsBackClaimAndCanBeRetried() public {
+    function testTransferFailureRollsBackClaimAndCanBeRetried() public {
         bytes32 root = ledger.leafHash(7, SOURCE, BENEFICIARY, 400);
         uint64 activation = uint64(block.timestamp + 1 days);
         ledger.proposeEvidence(root, MANIFEST, activation, _signatures(ledger.attestationDigest(root, MANIFEST, activation)));
@@ -177,5 +177,55 @@ contract VerifiedTokenClaimLedgerTest {
         assert(!ok);
         assert(!ledger.claimed(7));
         assert(ledger.totalClaimed() == 0);
+    }
+
+    function testFuzzClaimConservesAllocation(uint96 rawAmount) public {
+        uint256 amount = uint256(rawAmount) % 1000 + 1;
+        bytes32 root = ledger.leafHash(7, SOURCE, BENEFICIARY, amount);
+        uint64 activation = uint64(block.timestamp + 1 days);
+        ledger.proposeEvidence(root, MANIFEST, activation, _signatures(ledger.attestationDigest(root, MANIFEST, activation)));
+        vm.warp(activation);
+        ledger.activate();
+
+        bytes32[] memory proof = new bytes32[](0);
+        vm.prank(BENEFICIARY);
+        ledger.claim(7, SOURCE, amount, proof);
+
+        assert(ledger.totalClaimed() == amount);
+        assert(settlement.totalSettled() == amount);
+        assert(settlement.availableBacking() == 1000 - amount);
+        assert(token.balanceOf(BENEFICIARY) + token.balanceOf(address(settlement)) == 1000);
+    }
+
+    function testAdministratorCanPauseAndResumeClaims() public {
+        bytes32 root = ledger.leafHash(7, SOURCE, BENEFICIARY, 400);
+        uint64 activation = uint64(block.timestamp + 1 days);
+        ledger.proposeEvidence(root, MANIFEST, activation, _signatures(ledger.attestationDigest(root, MANIFEST, activation)));
+        vm.warp(activation);
+        ledger.activate();
+
+        ledger.pauseClaims();
+        assert(ledger.paused());
+        bytes32[] memory proof = new bytes32[](0);
+        vm.prank(BENEFICIARY);
+        (bool ok,) = address(ledger).call(abi.encodeCall(ledger.claim, (7, SOURCE, 400, proof)));
+        assert(!ok);
+        assert(!ledger.claimed(7));
+        ledger.unpauseClaims();
+
+        vm.prank(BENEFICIARY);
+        ledger.claim(7, SOURCE, 400, proof);
+        assert(ledger.claimed(7));
+    }
+
+    function invariant_claimAccountingNeverExceedsAllocation() public view {
+        assert(ledger.totalClaimed() <= ledger.totalAllocation());
+        assert(settlement.totalSettled() <= settlement.totalFunded());
+        assert(settlement.totalSettled() <= settlement.allocationCap());
+    }
+
+    function invariant_claimLedgerAndEscrowSettlementStayInSync() public view {
+        assert(ledger.totalClaimed() == settlement.totalSettled());
+        assert(settlement.totalSettled() <= settlement.totalFunded());
     }
 }
