@@ -101,7 +101,7 @@ UPDATE migrations SET status = 'verifying', version = version + 1
 WHERE id = '00000000-0000-4000-8000-000000000006';
 COMMIT;
 
-DO $
+DO $$
 BEGIN
     BEGIN
         UPDATE migrations SET status = 'review', version = version + 1
@@ -111,7 +111,7 @@ BEGIN
         NULL;
     END;
 END;
-$;
+$$;
 
 INSERT INTO audit_events (
  tenant_id, actor_user_id, actor_type, event_type, entity_type, entity_id, event_hash, payload
@@ -137,14 +137,14 @@ INSERT INTO snapshot_runs (
 INSERT INTO snapshot_partitions (run_id, partition_index, start_index, end_index)
 VALUES ('00000000-0000-4000-8000-000000000011', 0, 0, 1);
 UPDATE snapshot_runs SET status='scanning' WHERE id='00000000-0000-4000-8000-000000000011';
+UPDATE snapshot_partitions SET status='leased', attempt_count=1, worker_id='snapshot-worker',
+ lease_until=now()+interval '1 minute' WHERE run_id='00000000-0000-4000-8000-000000000011' AND partition_index=0;
 INSERT INTO snapshot_holders (
  run_id, source_index, source_account_id, source_account_digest, storage_key, amount, proof_digest, partition_index
 ) VALUES (
  '00000000-0000-4000-8000-000000000011', 0, decode(repeat('ab', 32), 'hex'),
  decode(repeat('bc', 32), 'hex'), decode('01', 'hex'), 1000, decode(repeat('cd', 32), 'hex'), 0
 );
-UPDATE snapshot_partitions SET status='leased', attempt_count=1, worker_id='snapshot-worker',
- lease_until=now()+interval '1 minute' WHERE run_id='00000000-0000-4000-8000-000000000011' AND partition_index=0;
 UPDATE snapshot_partitions SET status='completed', worker_id=NULL, lease_until=NULL, processed_count=1,
  amount_sum=1000, partial_digest=decode(repeat('de', 32), 'hex'),
  proof_bundle_digest=decode(repeat('ef', 32), 'hex'), completed_at=now()
@@ -186,7 +186,7 @@ UPDATE migrations SET status = 'review', version = version + 1
 WHERE id = '00000000-0000-4000-8000-000000000006';
 COMMIT;
 
-DO $
+DO $$
 BEGIN
     IF (SELECT count(*) FROM migrations WHERE status = 'review' AND version = 5) <> 1 THEN RAISE EXCEPTION 'migration status transition missing'; END IF;
     IF (SELECT count(*) FROM verified_evidence) <> 1 THEN RAISE EXCEPTION 'verified evidence row missing'; END IF;
