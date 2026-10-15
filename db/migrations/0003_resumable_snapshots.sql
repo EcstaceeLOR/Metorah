@@ -110,6 +110,10 @@ CREATE FUNCTION guard_snapshot_run_update() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE allowed boolean := false;
 BEGIN
+    IF OLD.status IN ('reconciled','failed','cancelled') THEN
+        RAISE EXCEPTION 'terminal snapshot run cannot be modified'
+            USING ERRCODE = '23514';
+    END IF;
     IF NEW.tenant_id IS DISTINCT FROM OLD.tenant_id
         OR NEW.migration_id IS DISTINCT FROM OLD.migration_id
         OR NEW.source_chain_id IS DISTINCT FROM OLD.source_chain_id
@@ -161,6 +165,10 @@ CREATE FUNCTION guard_snapshot_partition_update() RETURNS trigger
 LANGUAGE plpgsql AS $$
 DECLARE allowed boolean := false;
 BEGIN
+    IF OLD.status IN ('completed','permanent_failed') THEN
+        RAISE EXCEPTION 'terminal snapshot partition cannot be modified'
+            USING ERRCODE = '23514';
+    END IF;
     IF NEW.run_id IS DISTINCT FROM OLD.run_id
         OR NEW.partition_index IS DISTINCT FROM OLD.partition_index
         OR NEW.start_index IS DISTINCT FROM OLD.start_index
