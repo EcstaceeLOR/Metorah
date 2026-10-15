@@ -328,7 +328,8 @@ class ReconciliationTests(unittest.TestCase):
 
     def test_reindexed_deleted_issuance_still_fails_accounting(self):
         s = copy.deepcopy(self.source)
-        s["events"].pop(5)  # removes original F mint; reindexes to hide gap
+        s["events"].pop(12)  # remove F binding before deleting its issuance
+        s["events"].pop(5)   # removes original F mint; hide BOTH gaps
         for i, event in enumerate(s["events"]):
             event["event_index"] = i
         self.fails("FREEZE_SUPPLY_MISMATCH", source=s)
