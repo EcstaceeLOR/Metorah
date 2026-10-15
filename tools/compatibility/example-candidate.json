@@ -1,0 +1,14 @@
+{
+  "asset_kind": "fungible_entitlement",
+  "source_vm": "wasm",
+  "destination_vm": "evm",
+  "source_genesis_hash": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "features": ["fungible_balances", "destination_bindings"],
+  "supports_irreversible_freeze": true,
+  "enumerates_complete_holder_set": true,
+  "exposes_per_holder_balances": true,
+  "exposes_verifiable_total_supply": true,
+  "source_authorizes_beneficiary_bindings": true,
+  "pins_state_to_finalized_block": true,
+  "exposes_verifiable_storage_evidence": true
+}
