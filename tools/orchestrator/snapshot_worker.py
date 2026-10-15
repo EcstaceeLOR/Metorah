@@ -278,11 +278,12 @@ class SnapshotWorker:
         connection, cursor = self._open()
         try:
             cursor.execute(
-                "SELECT p.id, p.run_id, p.partition_index, p.start_index, p.end_index, p.attempt_count, "
-                "r.migration_id, r.source_chain_id, r.pinned_block_number, r.pinned_block_hash, r.state_root, "
-                "r.genesis_hash, r.trie_state_version, r.finality_evidence_digest "
+                "SELECT p.id, p.run_id, p.partition_index, p.start_index, p.end_index, p.status, "
+                "p.attempt_count, p.max_attempts, r.migration_id, r.source_chain_id, "
+                "r.pinned_block_number, r.pinned_block_hash, r.state_root, r.genesis_hash, "
+                "r.trie_state_version, r.finality_evidence_digest "
                 "FROM snapshot_partitions p JOIN snapshot_runs r ON r.id=p.run_id "
-                "WHERE r.status='scanning' AND p.attempt_count < p.max_attempts AND "
+                "WHERE r.status='scanning' AND "
                 "((p.status='queued' AND p.available_at <= now()) OR (p.status='leased' AND p.lease_until < now())) "
                 "ORDER BY p.available_at, p.run_id, p.partition_index LIMIT 1 FOR UPDATE OF p SKIP LOCKED"
             )
@@ -290,7 +291,26 @@ class SnapshotWorker:
             if row is None:
                 self._close(connection, cursor)
                 return None
-            next_attempt = int(row[5]) + 1
+            attempt, maximum = int(row[6]), int(row[7])
+            if attempt >= maximum:
+                code = "PARTITION_LEASE_EXPIRED_RETRY_LIMIT" if row[5] == "leased" else "PARTITION_RETRY_LIMIT"
+                cursor.execute(
+                    "UPDATE snapshot_partitions SET status='permanent_failed', worker_id=NULL, lease_until=NULL, "
+                    "last_error_code=%s WHERE id=%s",
+                    (code, row[0]),
+                )
+                cursor.execute(
+                    "INSERT INTO snapshot_failures (run_id, partition_index, failure_code, retryable) "
+                    "VALUES (%s,%s,%s,false)",
+                    (row[1], row[2], code),
+                )
+                cursor.execute(
+                    "UPDATE snapshot_runs SET status='failed', failure_code=%s WHERE id=%s",
+                    (code, row[1]),
+                )
+                self._close(connection, cursor)
+                return None
+            next_attempt = attempt + 1
             cursor.execute(
                 "UPDATE snapshot_partitions SET status='leased', attempt_count=%s, worker_id=%s, "
                 "lease_until=now()+make_interval(secs => %s), last_error_code=NULL "
@@ -302,10 +322,10 @@ class SnapshotWorker:
                 "partition_id": str(row[0]), "run_id": str(row[1]), "partition_index": int(row[2]),
                 "start_index": int(row[3]), "end_index": int(row[4]), "attempt_count": next_attempt,
                 "worker_id": worker_id, "lease_until": lease_until.isoformat(),
-                "migration_id": str(row[6]), "checkpoint": VerifiedCheckpoint(
-                    source_chain_id=str(row[7]), block_number=int(row[8]), block_hash=bytes(row[9]),
-                    state_root=bytes(row[10]), genesis_hash=bytes(row[11]), trie_state_version=int(row[12]),
-                    finality_evidence_digest=bytes(row[13]),
+                "migration_id": str(row[8]), "checkpoint": VerifiedCheckpoint(
+                    source_chain_id=str(row[9]), block_number=int(row[10]), block_hash=bytes(row[11]),
+                    state_root=bytes(row[12]), genesis_hash=bytes(row[13]), trie_state_version=int(row[14]),
+                    finality_evidence_digest=bytes(row[15]),
                 ),
             }
             self._close(connection, cursor)
