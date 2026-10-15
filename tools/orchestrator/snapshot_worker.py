@@ -269,13 +269,46 @@ class SnapshotWorker:
                 "INSERT INTO snapshot_runs (tenant_id, migration_id, source_chain_id, pinned_block_number, "
                 "pinned_block_hash, state_root, genesis_hash, trie_state_version, finality_evidence_digest, "
                 "registry_header_digest, expected_holder_count, expected_total_supply) "
-                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id",
+                "VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) "
+                "ON CONFLICT (migration_id, source_chain_id, pinned_block_hash) DO NOTHING RETURNING id",
                 (tenant_id, migration_id, source_chain_id, checkpoint.block_number, checkpoint.block_hash,
                  checkpoint.state_root, checkpoint.genesis_hash, checkpoint.trie_state_version,
                  checkpoint.finality_evidence_digest, commitment.header_digest,
                  commitment.expected_holder_count, commitment.expected_total_supply),
             )
-            run_id = str(cursor.fetchone()[0])
+            inserted = cursor.fetchone()
+            if inserted is None:
+                cursor.execute(
+                    "SELECT id, status, expected_holder_count, expected_total_supply, state_root, genesis_hash, "
+                    "trie_state_version, finality_evidence_digest, registry_header_digest "
+                    "FROM snapshot_runs WHERE migration_id=%s AND source_chain_id=%s AND pinned_block_hash=%s FOR UPDATE",
+                    (migration_id, source_chain_id, checkpoint.block_hash),
+                )
+                concurrent = cursor.fetchone()
+                if concurrent is None:
+                    raise SnapshotError("SNAPSHOT_CREATE_RACE")
+                stored = (
+                    int(concurrent[2]), int(concurrent[3]), bytes(concurrent[4]), bytes(concurrent[5]),
+                    int(concurrent[6]), bytes(concurrent[7]), bytes(concurrent[8]),
+                )
+                supplied = (
+                    commitment.expected_holder_count, commitment.expected_total_supply, checkpoint.state_root,
+                    checkpoint.genesis_hash, checkpoint.trie_state_version,
+                    checkpoint.finality_evidence_digest, commitment.header_digest,
+                )
+                if stored != supplied:
+                    raise SnapshotError("PINNED_RUN_COMMITMENT_CONFLICT")
+                self._close(connection, cursor)
+                connection = None
+                return {
+                    "run_id": str(concurrent[0]), "status": str(concurrent[1]),
+                    "pinned_block_number": checkpoint.block_number,
+                    "pinned_block_hash": checkpoint.block_hash.hex(),
+                    "expected_holder_count": commitment.expected_holder_count,
+                    "expected_total_supply": str(commitment.expected_total_supply),
+                    "resumed": True,
+                }
+            run_id = str(inserted[0])
             ranges = partition_ranges(commitment.expected_holder_count, partition_size)
             for partition_index, start, end in ranges:
                 cursor.execute(
