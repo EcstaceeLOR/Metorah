@@ -48,6 +48,7 @@ contract VerifiedTokenClaimLedgerTest {
     BackedTokenSettlement private settlement;
     VerifiedTokenClaimLedger private ledger;
     MockClaimToken private token;
+    address[] private _invariantTargets;
 
     function setUp() public {
         address[] memory attesters = new address[](2);
@@ -68,6 +69,14 @@ contract VerifiedTokenClaimLedgerTest {
         ledger.configureSettlement(address(settlement));
         token.mint(address(this), 1000);
         settlement.fund(1000);
+        _invariantTargets = new address[](1);
+        _invariantTargets[0] = address(ledger);
+    }
+
+    /// @dev Invariant fuzzing must exercise the public ledger API, not impersonate its controller
+    /// and call the escrow adapter directly. The latter is impossible for external users on-chain.
+    function targetContracts() external view returns (address[] memory) {
+        return _invariantTargets;
     }
 
     function _sig(uint256 key, bytes32 digest) internal returns (bytes memory) {
@@ -99,6 +108,28 @@ contract VerifiedTokenClaimLedgerTest {
         assert(ledger.totalClaimed() == 400);
         assert(settlement.totalSettled() == 400);
         assert(settlement.availableBacking() == 600);
+
+        (bytes32 receiptSource, address receiptBeneficiary, uint256 receiptAmount, bytes32 receiptClaimId, uint256 settledAt) =
+            ledger.claimReceipts(7);
+        assert(receiptSource == SOURCE);
+        assert(receiptBeneficiary == BENEFICIARY);
+        assert(receiptAmount == 400);
+        assert(receiptClaimId == keccak256(abi.encode(MIGRATION, uint256(7), SOURCE)));
+        assert(settledAt == block.timestamp);
+
+        VerifiedTokenClaimLedger.MigrationStatus memory status = ledger.migrationStatus();
+        assert(status.migrationId == MIGRATION);
+        assert(status.sourceFreezeEvidenceHash == FREEZE);
+        assert(status.merkleRoot == root);
+        assert(status.totalAllocation == 1000);
+        assert(status.totalClaimed == 400);
+        assert(status.totalFunded == 1000);
+        assert(status.totalSettled == 400);
+        assert(status.escrowTokenBalance == 600);
+        assert(status.remainingFundedLiability == 600);
+        assert(status.unfundedAuthorizedAllocation == 0);
+        assert(status.availableBacking == 600);
+        assert(status.activated && !status.paused);
     }
 
     function testUnboundOrWrongBeneficiaryCannotClaim() public {

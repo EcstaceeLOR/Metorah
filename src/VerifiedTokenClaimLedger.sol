@@ -38,12 +38,51 @@ contract VerifiedTokenClaimLedger {
     mapping(address => bool) public authorizedSigner;
     mapping(uint256 => bool) public claimed;
 
+    struct ClaimReceipt {
+        bytes32 sourceAccountId;
+        address beneficiary;
+        uint256 amount;
+        bytes32 claimId;
+        uint256 settledAt;
+    }
+
+    struct MigrationStatus {
+        bytes32 migrationId;
+        bytes32 sourceFreezeEvidenceHash;
+        bytes32 merkleRoot;
+        bytes32 manifestHash;
+        uint256 totalAllocation;
+        uint256 totalClaimed;
+        uint64 activationTime;
+        bool proposed;
+        bool activated;
+        bool paused;
+        uint256 totalFunded;
+        uint256 totalSettled;
+        uint256 escrowTokenBalance;
+        uint256 remainingFundedLiability;
+        uint256 unfundedAuthorizedAllocation;
+        uint256 availableBacking;
+    }
+
+    mapping(uint256 => ClaimReceipt) public claimReceipts;
+
     event EvidenceProposed(bytes32 indexed root, bytes32 indexed manifestHash, uint64 activationTime);
     event EvidenceActivated(bytes32 indexed root, bytes32 indexed manifestHash);
     event TokenClaimSettled(uint256 indexed index, bytes32 indexed sourceAccountId, address indexed beneficiary, uint256 amount, bytes32 claimId);
     event SettlementConfigured(address indexed settlement);
     event ClaimsPaused(address indexed account);
     event ClaimsUnpaused(address indexed account);
+    event ClaimReceiptRecorded(
+        uint256 indexed index,
+        bytes32 indexed claimId,
+        address indexed beneficiary,
+        uint256 amount,
+        uint256 totalClaimed,
+        uint256 totalFunded,
+        uint256 totalSettled,
+        uint256 settledAt
+    );
 
     error Unauthorized();
     error InvalidConfiguration();
@@ -187,7 +226,42 @@ contract VerifiedTokenClaimLedger {
         claimed[index] = true;
         totalClaimed += amount;
         settlement.settle(claimId, beneficiary, amount);
+        uint256 settledAt = block.timestamp;
+        claimReceipts[index] = ClaimReceipt({
+            sourceAccountId: sourceAccountId,
+            beneficiary: beneficiary,
+            amount: amount,
+            claimId: claimId,
+            settledAt: settledAt
+        });
         emit TokenClaimSettled(index, sourceAccountId, beneficiary, amount, claimId);
+        emit ClaimReceiptRecorded(
+            index, claimId, beneficiary, amount, totalClaimed,
+            settlement.totalFunded(), settlement.totalSettled(), settledAt
+        );
+    }
+
+    /// @notice On-chain migration/accounting status; remains available without an indexer or backend.
+    function migrationStatus() external view returns (MigrationStatus memory status) {
+        status.migrationId = migrationId;
+        status.sourceFreezeEvidenceHash = sourceFreezeEvidenceHash;
+        status.merkleRoot = merkleRoot;
+        status.manifestHash = manifestHash;
+        status.totalAllocation = totalAllocation;
+        status.totalClaimed = totalClaimed;
+        status.activationTime = activationTime;
+        status.proposed = proposed;
+        status.activated = activated;
+        status.paused = paused;
+        if (address(settlement) != address(0)) {
+            BackedTokenSettlement.AccountingSnapshot memory snapshot = settlement.accountingSnapshot();
+            status.totalFunded = snapshot.totalFunded;
+            status.totalSettled = snapshot.totalSettled;
+            status.escrowTokenBalance = snapshot.escrowTokenBalance;
+            status.remainingFundedLiability = snapshot.remainingFundedLiability;
+            status.unfundedAuthorizedAllocation = snapshot.unfundedAuthorizedAllocation;
+            status.availableBacking = snapshot.availableBacking;
+        }
     }
 
     function attestationDigest(bytes32 root, bytes32 manifest, uint64 activationTime_) external view returns (bytes32) {
