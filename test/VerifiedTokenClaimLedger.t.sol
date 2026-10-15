@@ -48,6 +48,7 @@ contract VerifiedTokenClaimLedgerTest {
     BackedTokenSettlement private settlement;
     VerifiedTokenClaimLedger private ledger;
     MockClaimToken private token;
+    address[] private _invariantTargets;
 
     function setUp() public {
         address[] memory attesters = new address[](2);
@@ -68,6 +69,14 @@ contract VerifiedTokenClaimLedgerTest {
         ledger.configureSettlement(address(settlement));
         token.mint(address(this), 1000);
         settlement.fund(1000);
+        _invariantTargets = new address[](1);
+        _invariantTargets[0] = address(ledger);
+    }
+
+    /// @dev Invariant fuzzing must exercise the public ledger API, not impersonate its controller
+    /// and call the escrow adapter directly. The latter is impossible for external users on-chain.
+    function targetContracts() external view returns (address[] memory) {
+        return _invariantTargets;
     }
 
     function _sig(uint256 key, bytes32 digest) internal returns (bytes memory) {
