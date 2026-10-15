@@ -257,7 +257,7 @@ CREATE TABLE audit_events (
 );
 
 CREATE TRIGGER migrations_status_audit
-AFTER UPDATE OF status ON migrations
+BEFORE UPDATE OF status ON migrations
 FOR EACH ROW EXECUTE FUNCTION record_migration_status_transition();
 
 CREATE INDEX migrations_tenant_status_idx ON migrations (tenant_id, status, updated_at DESC);
