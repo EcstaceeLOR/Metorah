@@ -45,15 +45,34 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm -r test
-  rust-toolchain-smoke:
+  wasm-contract:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.90.0
           targets: wasm32-unknown-unknown
-          components: rustfmt, clippy
-      - run: rustc --version
-      - run: cargo --version
-      - run: 'echo "Rust toolchain only: NO WASM source contract built or deployed"'
+          components: rustfmt, clippy, rust-src
+      - run: rustc --version && cargo --version
+      - name: Bootstrap WASM dependency lockfile (review before merge)
+        run: |
+          cargo generate-lockfile --manifest-path contracts/wasm/toolchain-smoke/Cargo.toml
+          echo "METORAH_LOCKFILE_BASE64_BEGIN"
+          base64 -w0 contracts/wasm/toolchain-smoke/Cargo.lock
+          echo
+          echo "METORAH_LOCKFILE_BASE64_END"
+      - name: ink! off-chain contract tests
+        run: cargo test --manifest-path contracts/wasm/toolchain-smoke/Cargo.toml --locked
+      - name: Install pinned cargo-contract
+        run: cargo install cargo-contract --version 5.0.3 --locked
+      - run: cargo contract --version
+      - name: Build ink! Wasm and ABI bundle
+        run: cargo contract build --release --manifest-path contracts/wasm/toolchain-smoke/Cargo.toml
+      - name: Record artifact fingerprints
+        run: |
+          set -eu
+          test -s contracts/wasm/toolchain-smoke/target/ink/metorah_toolchain_smoke.wasm
+          test -s contracts/wasm/toolchain-smoke/target/ink/metorah_toolchain_smoke.contract
+          sha256sum contracts/wasm/toolchain-smoke/target/ink/metorah_toolchain_smoke.*
