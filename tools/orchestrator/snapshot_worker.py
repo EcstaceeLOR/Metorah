@@ -76,7 +76,7 @@ def canonical_inventory_digest(records: Iterable[VerifiedHolder]) -> bytes:
 
 def _digest(value: bytes, name: str) -> bytes:
     if not isinstance(value, bytes) or len(value) != 32:
-        raise SnapshotError("INVALID_" + name.upper(), f"{name} must be exactly 32 bytes.")
+        raise SnapshotError("INVALID_" + name.upper(), "INVALID_" + name.upper() + f": {name} must be exactly 32 bytes.")
     return value
 
 
