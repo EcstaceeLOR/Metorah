@@ -171,3 +171,30 @@ jobs:
           path: tools/trie-verifier/Cargo.lock
           if-no-files-found: error
           retention-days: 14
+
+  postgres-schema:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: metorah_test
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d metorah_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install PostgreSQL client
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql-client
+      - name: Apply schema, enforce constraints, rollback, and reapply
+        run: bash tools/db/test_migrations.sh
+        env:
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/metorah_test
