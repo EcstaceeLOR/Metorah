@@ -206,7 +206,7 @@ CREATE TRIGGER snapshot_partitions_guard BEFORE UPDATE ON snapshot_partitions
 FOR EACH ROW EXECUTE FUNCTION guard_snapshot_partition_update();
 
 CREATE FUNCTION guard_snapshot_holder_insert() RETURNS trigger
-LANGUAGE plpgsql AS $
+LANGUAGE plpgsql AS $$
 DECLARE run_state text; partition_state text; range_start integer; range_end integer;
 BEGIN
     SELECT r.status, p.status, p.start_index, p.end_index
@@ -224,12 +224,12 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$;
+$$;
 CREATE TRIGGER snapshot_holders_insert_guard BEFORE INSERT ON snapshot_holders
 FOR EACH ROW EXECUTE FUNCTION guard_snapshot_holder_insert();
 
 CREATE FUNCTION guard_snapshot_reconciliation_insert() RETURNS trigger
-LANGUAGE plpgsql AS $
+LANGUAGE plpgsql AS $$
 DECLARE run_row snapshot_runs%ROWTYPE; holder_count bigint; holder_total numeric(78,0);
 BEGIN
     SELECT * INTO run_row FROM snapshot_runs WHERE id=NEW.run_id FOR UPDATE;
@@ -267,7 +267,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$;
+$$;
 CREATE TRIGGER snapshot_reconciliation_insert_guard BEFORE INSERT ON snapshot_reconciliations
 FOR EACH ROW EXECUTE FUNCTION guard_snapshot_reconciliation_insert();
 
