@@ -31,6 +31,7 @@ contract VerifiedTokenClaimLedger {
     bytes32 public manifestHash;
     bool public proposed;
     bool public activated;
+    bool public paused;
     uint256 public totalClaimed;
     uint256 public constant MAX_PROOF_LENGTH = 64;
     bool private _claimEntered;
@@ -41,6 +42,8 @@ contract VerifiedTokenClaimLedger {
     event EvidenceActivated(bytes32 indexed root, bytes32 indexed manifestHash);
     event TokenClaimSettled(uint256 indexed index, bytes32 indexed sourceAccountId, address indexed beneficiary, uint256 amount, bytes32 claimId);
     event SettlementConfigured(address indexed settlement);
+    event ClaimsPaused(address indexed account);
+    event ClaimsUnpaused(address indexed account);
 
     error Unauthorized();
     error InvalidConfiguration();
@@ -52,6 +55,7 @@ contract VerifiedTokenClaimLedger {
     error SettlementAlreadyConfigured();
     error ReentrantCall();
     error ProofTooLong();
+    error ClaimsArePaused();
 
     modifier nonReentrant() {
         if (_claimEntered) revert ReentrantCall();
@@ -128,6 +132,21 @@ contract VerifiedTokenClaimLedger {
         emit EvidenceProposed(root, manifest, activationTime_);
     }
 
+    /// @notice Emergency brake. Governance hardening and multisig controls are tracked separately.
+    function pauseClaims() external {
+        if (msg.sender != administrator) revert Unauthorized();
+        if (paused) revert InvalidConfiguration();
+        paused = true;
+        emit ClaimsPaused(msg.sender);
+    }
+
+    function unpauseClaims() external {
+        if (msg.sender != administrator) revert Unauthorized();
+        if (!paused) revert InvalidConfiguration();
+        paused = false;
+        emit ClaimsUnpaused(msg.sender);
+    }
+
     function activate() external {
         if (!proposed || activated) revert InvalidEvidence();
         if (block.timestamp < activationTime) revert ReviewPending();
@@ -147,6 +166,7 @@ contract VerifiedTokenClaimLedger {
     /// @notice Verify the approved entitlement and source binding, then transfer actual escrowed tokens.
     function claim(uint256 index, bytes32 sourceAccountId, uint256 amount, bytes32[] calldata proof) external nonReentrant {
         if (!activated) revert NotActivated();
+        if (paused) revert ClaimsArePaused();
         if (address(settlement) == address(0) || claimed[index] || sourceAccountId == bytes32(0) ||
             amount == 0 || totalClaimed + amount > totalAllocation) revert InvalidClaim();
 
