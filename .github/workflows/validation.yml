@@ -35,6 +35,7 @@ jobs:
       - run: python -m unittest discover -s test -p test_freeze_evidence.py -v
       - run: python -m unittest discover -s test -p test_finalized_headers.py -v
       - run: python -m unittest discover -s test -p test_finality_transport.py -v
+      - run: python -m unittest discover -s test -p test_storage_trie_collector.py -v
       - run: python -m unittest discover -s test -p test_source_fixture_runner.py -v
       - run: python -m unittest discover -s test -p test_manifest_v1.py -v
       - name: Verify committed 1/2/3/257 holder golden fixture bytes
@@ -127,3 +128,17 @@ jobs:
           path: local_model/artifacts/source-fixture-local.json
           if-no-files-found: ignore
           retention-days: 7
+
+  trie-verifier:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.90.0
+          components: rustfmt, clippy
+      - name: Run real Parity sp-trie V0/V1 proof verification and mutation tests
+        run: cargo test --manifest-path tools/trie-verifier/Cargo.toml --all-targets --verbose
+      - name: Compile isolated offline verifier CLI
+        run: cargo build --release --manifest-path tools/trie-verifier/Cargo.toml
