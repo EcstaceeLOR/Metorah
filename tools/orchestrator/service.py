@@ -289,7 +289,7 @@ class DurableOrchestrator:
                 "SELECT id, migration_id, job_kind, payload, state, attempt_count, max_attempts, last_started_at "
                 "FROM jobs WHERE ((state IN ('queued','retry_wait') AND available_at <= now()) "
                 "OR (state='running' AND lease_until < now())) "
-                "ORDER BY available_at, created_at FOR UPDATE SKIP LOCKED LIMIT 1"
+                "ORDER BY available_at, created_at LIMIT 1 FOR UPDATE SKIP LOCKED"
             )
             row = cursor.fetchone()
             if row is None:
@@ -430,7 +430,7 @@ class DurableOrchestrator:
                 "FROM outbox_delivery d JOIN outbox_events e ON e.id=d.event_id "
                 "WHERE ((d.state IN ('pending','failed') AND d.available_at <= now()) "
                 "OR (d.state='leased' AND d.lease_until < now())) "
-                "ORDER BY d.available_at, e.occurred_at FOR UPDATE OF d SKIP LOCKED LIMIT %s",
+                "ORDER BY d.available_at, e.occurred_at LIMIT %s FOR UPDATE OF d SKIP LOCKED",
                 (limit,),
             )
             rows = cursor.fetchall()
