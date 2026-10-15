@@ -2,6 +2,7 @@
 name = "metorah-source-ledger"
 version = "0.1.0"
 edition = "2021"
+authors = ["Metorah Engineering"]
 publish = false
 description = "Metorah WASM fungible source ledger, pending runtime qualification and audit"
 
