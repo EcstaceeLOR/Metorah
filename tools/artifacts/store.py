@@ -35,7 +35,6 @@ class ArtifactDownload:
     classification: str
     artifact_kind: str
     revision: int
-    object_version: str
     integrity_verified: bool
 
 
@@ -294,7 +293,7 @@ class ArtifactStore:
                 "artifact_id": str(link[0]), "object_id": object_id, "migration_id": migration_id,
                 "content_sha256": digest_hex, "content_size": len(content), "media_type": media_type,
                 "classification": classification, "artifact_kind": artifact_kind, "revision": revision,
-                "retention_until": row[5].isoformat(), "object_version": str(row[4]),
+                "retention_until": row[5].isoformat(),
             }
             self._close(connection, cursor)
             connection = None
@@ -377,7 +376,7 @@ class ArtifactStore:
         return ArtifactDownload(
             content=content, content_sha256=content_sha256, content_type=str(media_type),
             content_size=len(content), classification=str(classification), artifact_kind=str(kind),
-            revision=int(revision), object_version=str(version), integrity_verified=True,
+            revision=int(revision), integrity_verified=True,
         )
 
     def _access_event_for_download(self, actor: ArtifactActor, migration_id: str, object_id: str,
