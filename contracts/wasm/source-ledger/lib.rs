@@ -1407,3 +1407,6 @@ mod metorah_source_ledger {
         }
     }
 }
+
+#[cfg(test)]
+mod golden_manifest;
