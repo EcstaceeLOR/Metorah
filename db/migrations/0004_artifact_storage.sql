@@ -112,7 +112,7 @@ CREATE TRIGGER artifact_objects_insert_guard BEFORE INSERT ON artifact_objects
 FOR EACH ROW EXECUTE FUNCTION guard_artifact_object_insert();
 
 CREATE FUNCTION guard_migration_artifact_insert() RETURNS trigger
-LANGUAGE plpgsql AS $
+LANGUAGE plpgsql AS $$
 DECLARE object_classification text;
 BEGIN
     SELECT classification INTO object_classification
@@ -127,7 +127,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$;
+$$;
 CREATE TRIGGER migration_artifacts_classification_guard BEFORE INSERT ON migration_artifacts
 FOR EACH ROW EXECUTE FUNCTION guard_migration_artifact_insert();
 
