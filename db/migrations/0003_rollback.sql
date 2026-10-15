@@ -2,6 +2,8 @@ BEGIN;
 
 DROP TRIGGER IF EXISTS migrations_snapshot_gate ON migrations;
 DROP TRIGGER IF EXISTS snapshot_runs_guard ON snapshot_runs;
+DROP TRIGGER IF EXISTS snapshot_holders_insert_guard ON snapshot_holders;
+DROP TRIGGER IF EXISTS snapshot_reconciliation_insert_guard ON snapshot_reconciliations;
 DROP TRIGGER IF EXISTS snapshot_partitions_guard ON snapshot_partitions;
 DROP TRIGGER IF EXISTS snapshot_holders_append_only ON snapshot_holders;
 DROP TRIGGER IF EXISTS snapshot_holders_no_truncate ON snapshot_holders;
@@ -11,6 +13,8 @@ DROP TRIGGER IF EXISTS snapshot_reconciliations_append_only ON snapshot_reconcil
 DROP TRIGGER IF EXISTS snapshot_reconciliations_no_truncate ON snapshot_reconciliations;
 
 DROP FUNCTION IF EXISTS guard_migration_snapshot_gate();
+DROP FUNCTION IF EXISTS guard_snapshot_holder_insert();
+DROP FUNCTION IF EXISTS guard_snapshot_reconciliation_insert();
 DROP FUNCTION IF EXISTS guard_snapshot_partition_update();
 DROP FUNCTION IF EXISTS guard_snapshot_run_update();
 
