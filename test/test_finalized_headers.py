@@ -84,7 +84,7 @@ class FakeRpc:
                     return out
             return copy.deepcopy(self.headers.get(block))
         if method == "state_getRuntimeVersion":
-            self.assert_pinned(params)
+            assert len(params) == 1 and params[0] in self.headers, params
             return copy.deepcopy(self.runtime)
         if method == "state_getStorage":
             self.assert_pinned(params[1:])
@@ -287,7 +287,9 @@ class FinalityObservationTests(unittest.TestCase):
         r = FakeRpc()
         self.collect(r)
         self.assertEqual(len([m for m, _ in r.calls if m == "chain_getHeader"]), 5)
-        self.assertEqual(len([m for m, _ in r.calls if m == "chain_getBlockHash"]), 6)
+        # Initial genesis, finalized height, three walked heights,
+        # repeated genesis and final checkpoint consistency read.
+        self.assertEqual(len([m for m, _ in r.calls if m == "chain_getBlockHash"]), 7)
 
 
 if __name__ == "__main__":
