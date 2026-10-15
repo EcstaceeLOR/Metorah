@@ -150,7 +150,7 @@ mod metorah_source_ledger {
         /// Stable index, even if an account later has zero balance.
         #[ink(message)]
         pub fn index_of(&self, account: AccountId) -> Option<u32> {
-            self.slots_plus_one.get(account).map(|slot| slot - 1)
+            self.slots_plus_one.get(account).and_then(|slot| slot.checked_sub(1))
         }
 
         #[ink(message)]
@@ -221,7 +221,7 @@ mod metorah_source_ledger {
         /// A historical holder is registered only once, on the first deposit.
         fn register_holder(&mut self, account: &AccountId) {
             if self.slots_plus_one.get(account).is_none() {
-                let slot = self.holder_count + 1; // prechecked against u32::MAX
+                let slot = self.holder_count.checked_add(1).expect("preflight ensures slot capacity");
                 self.holders.insert(self.holder_count, account);
                 self.slots_plus_one.insert(account, &slot);
                 self.holder_count = slot;
@@ -281,7 +281,8 @@ mod metorah_source_ledger {
             let to_balance = self.balance_of_ref(&to);
             let next_to = to_balance.checked_add(amount)
                 .ok_or(LedgerError::ArithmeticOverflow)?;
-            let next_from = from_balance - amount;
+            let next_from = from_balance.checked_sub(amount)
+                .ok_or(LedgerError::InsufficientBalance)?;
             self.ensure_holder_capacity(&to)?;
             let after_outflow = if next_from == 0 {
                 self.active_holder_count.checked_sub(1)
@@ -315,7 +316,8 @@ mod metorah_source_ledger {
             if current < amount {
                 return Err(LedgerError::InsufficientBalance);
             }
-            let next_balance = current - amount;
+            let next_balance = current.checked_sub(amount)
+                .ok_or(LedgerError::InsufficientBalance)?;
             let next_supply = self.total_supply.checked_sub(amount)
                 .ok_or(LedgerError::ArithmeticOverflow)?;
             let next_active = if next_balance == 0 {
