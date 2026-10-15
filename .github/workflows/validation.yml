@@ -56,13 +56,10 @@ jobs:
           targets: wasm32-unknown-unknown
           components: rustfmt, clippy, rust-src
       - run: rustc --version && cargo --version
-      - name: Bootstrap WASM dependency lockfile (review before merge)
+      - name: Verify committed fixture Cargo.lock
         run: |
-          cargo generate-lockfile --manifest-path contracts/wasm/toolchain-smoke/Cargo.toml
-          echo "METORAH_LOCKFILE_BASE64_BEGIN"
-          base64 -w0 contracts/wasm/toolchain-smoke/Cargo.lock
-          echo
-          echo "METORAH_LOCKFILE_BASE64_END"
+          test -s contracts/wasm/toolchain-smoke/Cargo.lock
+          cargo metadata --manifest-path contracts/wasm/toolchain-smoke/Cargo.toml --locked --no-deps --format-version 1 > /dev/null
       - name: ink! off-chain contract tests
         run: cargo test --manifest-path contracts/wasm/toolchain-smoke/Cargo.toml --locked
       - name: Install pinned cargo-contract
@@ -77,6 +74,14 @@ jobs:
           test -s contracts/wasm/toolchain-smoke/target/ink/metorah_toolchain_smoke.contract
           sha256sum contracts/wasm/toolchain-smoke/target/ink/metorah_toolchain_smoke.*
 
+      - name: Compile actual source ledger to ink! WASM bundle (NOT chain deployed)
+        run: cargo contract build --release --manifest-path contracts/wasm/source-ledger/Cargo.toml
+      - name: Validate source-ledger WASM and contract bundle artifacts
+        run: |
+          set -eu
+          test -s contracts/wasm/source-ledger/target/ink/metorah_source_ledger.wasm
+          test -s contracts/wasm/source-ledger/target/ink/metorah_source_ledger.contract
+          sha256sum contracts/wasm/source-ledger/target/ink/metorah_source_ledger.*
   wasm-source-ledger:
     runs-on: ubuntu-latest
     timeout-minutes: 35
