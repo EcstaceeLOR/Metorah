@@ -1530,8 +1530,7 @@
           "classification",
           "artifact_kind",
           "revision",
-          "retention_until",
-          "object_version"
+          "retention_until"
         ],
         "properties": {
           "artifact_id": {
@@ -1575,10 +1574,6 @@
           "retention_until": {
             "type": "string",
             "format": "date-time"
-          },
-          "object_version": {
-            "type": "string",
-            "description": "Opaque version identifier; object storage keys are never exposed."
           }
         }
       }
