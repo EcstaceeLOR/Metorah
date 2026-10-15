@@ -115,6 +115,16 @@ BEGIN
             RAISE EXCEPTION 'forbidden migration lifecycle transition: % -> %', OLD.status, NEW.status
                 USING ERRCODE = '23514';
         END IF;
+        IF OLD.status = 'paused' AND NEW.status = 'activated'
+            AND EXISTS (SELECT 1 FROM claims WHERE migration_id = NEW.id AND state = 'settled') THEN
+            RAISE EXCEPTION 'paused migration with prior claims must resume in claiming state'
+                USING ERRCODE = '23514';
+        END IF;
+        IF OLD.status = 'paused' AND NEW.status = 'claiming'
+            AND NOT EXISTS (SELECT 1 FROM claims WHERE migration_id = NEW.id AND state = 'settled') THEN
+            RAISE EXCEPTION 'paused migration without prior claims must resume in activated state'
+                USING ERRCODE = '23514';
+        END IF;
 
         actor_type_value := current_setting('metorah.actor_type', true);
         actor_id_value := current_setting('metorah.actor_id', true);
