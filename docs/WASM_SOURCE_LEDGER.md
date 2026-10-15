@@ -34,3 +34,8 @@ Successful off-chain ink! tests only verify code behavior under the ink! test en
 3. Perform deeper property/adversarial tests and independent review (issues #21–#23 and #71), and only then enable verified snapshot/activation later in the protocol.
 
 **No end-user wallet will be allowed to claim assets from this ledger until the independent provenance, mapping and destination settlement work is completed.**
+
+
+## Issue #21: Indexed source inventory and reconciliation
+
+See [SOURCE_ENUMERATION.md](SOURCE_ENUMERATION.md) for the indexed registry reader, separate off-chain scanner, tombstone policy, fail-closed reconciliation, and why chain-finalized storage proofs remain required.

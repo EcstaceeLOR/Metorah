@@ -676,6 +676,41 @@ mod metorah_source_ledger {
         }
 
         #[ink::test]
+        fn one_hundred_thirty_holders_cross_page_boundaries_without_gaps() {
+            let a = accounts();
+            caller(a.alice);
+            let mut l = ledger();
+            for n in 1u8..=130u8 {
+                let address = AccountId::from([n; 32]);
+                assert_eq!(l.mint(address, 1), Ok(()));
+            }
+            assert_eq!(l.holder_count(), 130);
+            assert_eq!(l.active_holder_count(), 130);
+            assert_eq!(l.total_supply(), 130);
+            assert_eq!(l.holder_page_indexed(0, 64).len(), 64);
+            assert_eq!(l.holder_page_indexed(64, 64).len(), 64);
+            assert_eq!(l.holder_page_indexed(128, 64).len(), 2);
+            let mut total = 0u128;
+            let mut seen = ink::prelude::collections::BTreeSet::new();
+            for index in 0..l.holder_count() {
+                let (account, units) = l.holder_at(index).expect("dense slot expected");
+                assert!(seen.insert(account));
+                assert_eq!(l.index_of(account), Some(index));
+                total += units;
+            }
+            assert_eq!(seen.len(), 130);
+            assert_eq!(total, l.total_supply());
+            caller(AccountId::from([64u8; 32]));
+            assert_eq!(l.burn(1), Ok(()));
+            assert_eq!(l.holder_at(63), Some((AccountId::from([64u8; 32]), 0)));
+            assert_eq!(l.holder_count(), 130);
+            assert_eq!(l.active_holder_count(), 129);
+            caller(a.alice);
+            assert_eq!(l.freeze(), Ok(()));
+            assert_eq!(l.registry_snapshot(), (true, [7; 32], 12, 1_000, 129, 130, 129));
+        }
+
+        #[ink::test]
         fn errors_do_not_emit_events() {
             let a = accounts();
             let mut l = ledger();
