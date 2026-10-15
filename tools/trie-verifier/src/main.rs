@@ -265,7 +265,7 @@ mod tests {
     }
     #[test]
     fn forged_root_or_block_rejected_prior_to_proof_check() {
-        let (p, root, block) = sample(1);
+        let (p, _root, block) = sample(1);
         assert_eq!(verify(p, H256::repeat_byte(0x55), block, 1).unwrap_err(), "STATE_ROOT_MISMATCH");
         let (p, root, _) = sample(1);
         assert_eq!(verify(p, root, H256::repeat_byte(0x44), 1).unwrap_err(), "PINNED_BLOCK_MISMATCH");
@@ -297,6 +297,6 @@ mod tests {
     fn malformed_noncanonical_hex_or_zero_root_fails_closed() {
         assert!(parse_hex("0xAABB", "NODE", false).is_err());
         assert!(parse_hex("AABB", "NODE", false).is_err());
-        assert!(parse_h256(&"0x".to_owned()+&"00".repeat(32), "ROOT").is_err());
+        assert!(parse_h256(&format!("0x{}", "00".repeat(32)), "ROOT").is_err());
     }
 }
