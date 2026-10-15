@@ -27,6 +27,7 @@ jobs:
       - run: python -m pip freeze
       - run: python -m unittest discover -s local_model -v
       - run: python -m unittest discover -s test -p test_compatibility.py -v
+      - run: python -m unittest discover -s test -p test_portaldot_probe.py -v
       - run: python -m unittest discover -s test -p test_assurance.py -v
       - run: python -m unittest discover -s test -p test_lifecycle.py -v
       - run: python -m unittest discover -s test -p test_release_policy.py -v
