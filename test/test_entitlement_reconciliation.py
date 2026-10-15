@@ -176,7 +176,7 @@ class ReconciliationTests(unittest.TestCase):
         s = copy.deepcopy(self.source)
         s["header"]["historical_holder_count"] = 5
         s["slots"] = s["slots"][:5]
-        self.fails("FREEZE_HOLDER_COUNT_MISMATCH", source=s) if False else self.fails("HISTORICAL_REGISTRY_COUNT_MISMATCH", source=s)
+        self.fails("HISTORICAL_REGISTRY_COUNT_MISMATCH", source=s)
 
     def test_missing_issued_event_fails(self):
         s = copy.deepcopy(self.source)
