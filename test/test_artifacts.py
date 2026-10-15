@@ -6,6 +6,7 @@ from tools.artifacts.store import (
     ArtifactError,
     S3CompatibleBackend,
     ArtifactStore,
+    can_download,
     validate_upload,
     verify_artifact_content,
 )
@@ -79,6 +80,16 @@ class ArtifactStorageTests(unittest.TestCase):
         with self.assertRaisesRegex(ArtifactError, "empty_artifact"):
             validate_upload(self.operator, "proof_bundle", "public_evidence", b"", "application/octet-stream", 1)
 
+    def test_download_acl_separates_public_confidential_and_private_mapping(self):
+        viewer = ArtifactActor("tenant-a", "viewer-1", ("viewer",))
+        reviewer = ArtifactActor("tenant-a", "reviewer-1", ("reviewer",))
+        privacy = ArtifactActor("tenant-a", "privacy-1", ("privacy_officer",))
+        self.assertTrue(can_download(viewer, "public_evidence"))
+        self.assertFalse(can_download(viewer, "confidential"))
+        self.assertFalse(can_download(reviewer, "private_mapping"))
+        self.assertTrue(can_download(privacy, "private_mapping"))
+        self.assertFalse(can_download(ArtifactActor("tenant-b", "viewer-2", ("viewer",)), "unknown"))
+
     def test_storage_key_is_tenant_scoped_and_content_addressed(self):
         digest = sha256(self.content).hexdigest()
         key_a = ArtifactStore._key("tenant-a", "private-mapping", digest)
@@ -119,6 +130,8 @@ class ArtifactStorageTests(unittest.TestCase):
         metadata = {"sha256": digest, "content_length": len(self.content)}
         verify_artifact_content(self.content, digest, len(self.content), metadata)
         with self.assertRaisesRegex(ArtifactError, "artifact_integrity_failure"):
+            verify_artifact_content(self.content, digest, len(self.content), metadata, expected_version="v1")
+        with self.assertRaisesRegex(ArtifactError, "artifact_integrity_failure"):
             verify_artifact_content(self.content + b"x", digest, len(self.content), metadata)
         with self.assertRaisesRegex(ArtifactError, "artifact_integrity_failure"):
             verify_artifact_content(self.content, digest, len(self.content), {"sha256": "0" * 64})
@@ -129,7 +142,7 @@ class ArtifactStorageTests(unittest.TestCase):
         digest = sha256(self.content).hexdigest()
         version = backend.put_if_absent("tenant/key", self.content, "application/json", digest, "public_evidence")
         content, metadata = backend.get("tenant/key", version)
-        verify_artifact_content(content, digest, len(self.content), metadata)
+        verify_artifact_content(content, digest, len(self.content), metadata, expected_version=version)
         backend.delete("tenant/key", version)
         self.assertNotIn("tenant/key", client.objects)
 
