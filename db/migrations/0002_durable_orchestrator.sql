@@ -211,7 +211,7 @@ BEGIN
     END IF;
     RETURN NEW;
 END;
-$;
+$$;
 CREATE TRIGGER migrations_initial_state_guard BEFORE INSERT ON migrations
 FOR EACH ROW EXECUTE FUNCTION guard_migration_initial_state();
 
