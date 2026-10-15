@@ -6,7 +6,11 @@ publishes/retains the last head digest. NOT a consensus transparency log.
 """
 from __future__ import annotations
 
-import fcntl
+try:
+    import fcntl  # POSIX advisory locks
+except ImportError:  # Windows
+    fcntl = None
+    import msvcrt
 from hashlib import sha256
 import os
 from pathlib import Path
@@ -138,14 +142,35 @@ def _atomic_write(path: Path, value: dict) -> None:
             temp.unlink(missing_ok=True)
 
 
+def _exclusive_lock(handle) -> None:
+    if fcntl is not None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    else:
+        # Windows locking uses a real byte range. Initialize only once.
+        handle.seek(0)
+        if handle.read(1) == b"":
+            handle.write(b"\x00")
+            handle.flush()
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_LOCK, 1)
+
+
+def _release_lock(handle) -> None:
+    if fcntl is not None:
+        fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+    else:
+        handle.seek(0)
+        msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+
+
 def append_history(
     path: Path, report: dict, evidence: dict[str, bytes], *,
     trusted_public_key: str, expected_tool_build_sha256: str,
 ) -> dict:
-    """Append an independently verified report with exclusive POSIX lock.
+    """Append an independently verified report under a POSIX/Windows lock.
 
-    This requires an out-of-band expected signer key. A self-declared key in
-    the receipt is not enough. Never generates a new report during append.
+    The trusted signer key must be approved out-of-band; public-key inclusion
+    in a signed report is NOT sufficient.
     """
     checked = verify_signed(
         report, evidence, trusted_public_key=trusted_public_key,
@@ -164,9 +189,12 @@ def append_history(
         fd = os.open(lock, flags, 0o600)
     except OSError as exc:
         raise ReportError("HISTORY_LOCK_FAILED") from exc
-    try:
-        with os.fdopen(fd, "a+b") as handle:
-            fcntl.flock(handle.fileno(), fcntl.LOCK_EX)
+    with os.fdopen(fd, "a+b") as handle:
+        try:
+            _exclusive_lock(handle)
+        except OSError as exc:
+            raise ReportError("HISTORY_LOCK_FAILED") from exc
+        try:
             prior = _history_data(path)
             state = verify_history(prior["entries"], trusted_public_key=trusted_public_key)
             if len(prior["entries"]) == MAX_ENTRIES:
@@ -186,9 +214,8 @@ def append_history(
             summary = verify_history(updated, trusted_public_key=trusted_public_key)
             _atomic_write(path, {"schema_version": SCHEMA, "entries": updated})
             return summary
-    finally:
-        # file descriptor context releases the exclusive lock automatically
-        pass
+        finally:
+            _release_lock(handle)
 
 
 def check_history_file(path: Path, *, trusted_public_key: str,
