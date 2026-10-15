@@ -51,6 +51,8 @@ expect_failure "snapshot reconciliation UPDATE is forbidden" \
   "${PSQL[@]}" -c "UPDATE snapshot_reconciliations SET outcome = 'failed' WHERE run_id = '00000000-0000-4000-8000-000000000011'"
 expect_failure "reconciliation record is required before snapshot completion" \
   "${PSQL[@]}" -c "UPDATE snapshot_runs SET status = 'reconciled', processed_holder_count = 1, recombined_digest = decode(repeat('88', 32), 'hex') WHERE id = '00000000-0000-4000-8000-000000000012'"
+expect_failure "artifact storage key must match its digest" \
+  "${PSQL[@]}" -c "INSERT INTO artifact_objects (id,tenant_id,content_sha256,content_size,media_type,classification,storage_key,object_version,retention_until,retention_policy_version,created_by) VALUES ('00000000-0000-4000-8000-000000000023','00000000-0000-4000-8000-000000000001',decode(repeat('cc',32),'hex'),12,'application/json','public_evidence','tenants/00000000-0000-4000-8000-000000000001/public-evidence/sha256/bb/' || repeat('bb',32),'test-version-3',now()+interval '30 days','retention-v1','operator@example.test')"
 expect_failure "artifact object metadata is immutable" \
   "${PSQL[@]}" -c "UPDATE artifact_objects SET content_size = 99 WHERE id = '00000000-0000-4000-8000-000000000021'"
 expect_failure "account mappings cannot use public evidence classification" \
