@@ -20,8 +20,28 @@ contract BackedTokenSettlement {
     bool private _settlementEntered;
     mapping(bytes32 => bool) public settledClaim;
 
+    struct AccountingSnapshot {
+        uint256 authorizedAllocation;
+        uint256 totalFunded;
+        uint256 totalSettled;
+        uint256 escrowTokenBalance;
+        uint256 remainingAuthorizedAllocation;
+        uint256 remainingFundedLiability;
+        uint256 unfundedAuthorizedAllocation;
+        uint256 availableBacking;
+        uint256 surplusTokenBalance;
+    }
+
     event Funded(address indexed funder, uint256 amount, uint256 totalFunded);
     event Settled(bytes32 indexed claimId, address indexed beneficiary, uint256 amount, uint256 totalSettled);
+    event SettlementAccountingUpdated(
+        uint256 authorizedAllocation,
+        uint256 totalFunded,
+        uint256 totalSettled,
+        uint256 escrowTokenBalance,
+        uint256 remainingFundedLiability,
+        uint256 unfundedAuthorizedAllocation
+    );
 
     error Unauthorized();
     error InvalidConfiguration();
@@ -58,6 +78,7 @@ contract BackedTokenSettlement {
         if (afterBalance < beforeBalance || afterBalance - beforeBalance != amount) revert UnsupportedTokenBehavior();
         totalFunded += amount;
         emit Funded(funder, amount, totalFunded);
+        _emitAccountingUpdate(afterBalance);
     }
 
     function settle(bytes32 claimId, address beneficiary, uint256 amount) external nonReentrant {
@@ -78,11 +99,59 @@ contract BackedTokenSettlement {
             revert UnsupportedTokenBehavior();
         }
         emit Settled(claimId, beneficiary, amount, totalSettled);
+        _emitAccountingUpdate(afterBalance);
     }
 
     function availableBacking() external view returns (uint256) {
         uint256 balance = token.balanceOf(address(this));
         return balance < totalFunded - totalSettled ? balance : totalFunded - totalSettled;
+    }
+
+    /// @notice Remaining portion of the authorized cap not yet settled, whether funded or not.
+    function remainingAuthorizedAllocation() external view returns (uint256) {
+        return allocationCap - totalSettled;
+    }
+
+    /// @notice Authorized amount not yet physically deposited, measured against cumulative funding.
+    function unfundedAuthorizedAllocation() external view returns (uint256) {
+        return allocationCap - totalFunded;
+    }
+
+    /// @notice Funded amount not yet settled; this is an accounting liability, not proof of token solvency.
+    function remainingFundedLiability() external view returns (uint256) {
+        return totalFunded - totalSettled;
+    }
+
+    function escrowTokenBalance() external view returns (uint256) {
+        return token.balanceOf(address(this));
+    }
+
+    /// @notice Snapshot separates authorized cap, deposited funds, paid claims and actual token balance.
+    function accountingSnapshot() external view returns (AccountingSnapshot memory snapshot) {
+        uint256 balance = token.balanceOf(address(this));
+        uint256 liability = totalFunded - totalSettled;
+        snapshot = AccountingSnapshot({
+            authorizedAllocation: allocationCap,
+            totalFunded: totalFunded,
+            totalSettled: totalSettled,
+            escrowTokenBalance: balance,
+            remainingAuthorizedAllocation: allocationCap - totalSettled,
+            remainingFundedLiability: liability,
+            unfundedAuthorizedAllocation: allocationCap - totalFunded,
+            availableBacking: balance < liability ? balance : liability,
+            surplusTokenBalance: balance > liability ? balance - liability : 0
+        });
+    }
+
+    function _emitAccountingUpdate(uint256 balance) private {
+        emit SettlementAccountingUpdated(
+            allocationCap,
+            totalFunded,
+            totalSettled,
+            balance,
+            totalFunded - totalSettled,
+            allocationCap - totalFunded
+        );
     }
 
     function _safeTransfer(address to, uint256 amount) private {
