@@ -14,14 +14,18 @@ interface VmTokenClaims {
 
 contract MockClaimToken {
     mapping(address => uint256) public balanceOf;
+    bool public failTransfers;
+    function setFailTransfers(bool fail) external { failTransfers = fail; }
     function mint(address to, uint256 amount) external { balanceOf[to] += amount; }
     function transfer(address to, uint256 amount) external returns (bool) {
+        require(!failTransfers, "forced transfer failure");
         require(balanceOf[msg.sender] >= amount, "balance");
         balanceOf[msg.sender] -= amount;
         balanceOf[to] += amount;
         return true;
     }
     function transferFrom(address from, address to, uint256 amount) external returns (bool) {
+        require(!failTransfers, "forced transfer failure");
         require(balanceOf[from] >= amount, "balance");
         balanceOf[from] -= amount;
         balanceOf[to] += amount;
@@ -135,5 +139,43 @@ contract VerifiedTokenClaimLedgerTest {
         uint64 activation = uint64(block.timestamp + 1 days);
         (bool ok,) = address(unconfigured).call(abi.encodeCall(unconfigured.proposeEvidence, (root, MANIFEST, activation, _signatures(unconfigured.attestationDigest(root, MANIFEST, activation)))));
         assert(!ok);
+    }
+
+    function testFailedTokenTransferRollsBackClaimAndCanBeRetried() public {
+        bytes32 root = ledger.leafHash(7, SOURCE, BENEFICIARY, 400);
+        uint64 activation = uint64(block.timestamp + 1 days);
+        ledger.proposeEvidence(root, MANIFEST, activation, _signatures(ledger.attestationDigest(root, MANIFEST, activation)));
+        vm.warp(activation);
+        ledger.activate();
+
+        bytes32[] memory proof = new bytes32[](0);
+        token.setFailTransfers(true);
+        vm.prank(BENEFICIARY);
+        (bool ok,) = address(ledger).call(abi.encodeCall(ledger.claim, (7, SOURCE, 400, proof)));
+        assert(!ok);
+        assert(!ledger.claimed(7));
+        assert(ledger.totalClaimed() == 0);
+        assert(settlement.totalSettled() == 0);
+
+        token.setFailTransfers(false);
+        vm.prank(BENEFICIARY);
+        ledger.claim(7, SOURCE, 400, proof);
+        assert(ledger.claimed(7));
+        assert(token.balanceOf(BENEFICIARY) == 400);
+    }
+
+    function testRejectsOverlongMerkleProofWithoutConsumingClaim() public {
+        bytes32 root = ledger.leafHash(7, SOURCE, BENEFICIARY, 400);
+        uint64 activation = uint64(block.timestamp + 1 days);
+        ledger.proposeEvidence(root, MANIFEST, activation, _signatures(ledger.attestationDigest(root, MANIFEST, activation)));
+        vm.warp(activation);
+        ledger.activate();
+
+        bytes32[] memory proof = new bytes32[](ledger.MAX_PROOF_LENGTH() + 1);
+        vm.prank(BENEFICIARY);
+        (bool ok,) = address(ledger).call(abi.encodeCall(ledger.claim, (7, SOURCE, 400, proof)));
+        assert(!ok);
+        assert(!ledger.claimed(7));
+        assert(ledger.totalClaimed() == 0);
     }
 }

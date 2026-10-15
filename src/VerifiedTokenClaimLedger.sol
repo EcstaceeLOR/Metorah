@@ -32,6 +32,8 @@ contract VerifiedTokenClaimLedger {
     bool public proposed;
     bool public activated;
     uint256 public totalClaimed;
+    uint256 public constant MAX_PROOF_LENGTH = 64;
+    bool private _claimEntered;
     mapping(address => bool) public authorizedSigner;
     mapping(uint256 => bool) public claimed;
 
@@ -48,6 +50,15 @@ contract VerifiedTokenClaimLedger {
     error NotActivated();
     error InvalidClaim();
     error SettlementAlreadyConfigured();
+    error ReentrantCall();
+    error ProofTooLong();
+
+    modifier nonReentrant() {
+        if (_claimEntered) revert ReentrantCall();
+        _claimEntered = true;
+        _;
+        _claimEntered = false;
+    }
 
     constructor(
         bytes32 migrationId_,
@@ -134,7 +145,7 @@ contract VerifiedTokenClaimLedger {
     }
 
     /// @notice Verify the approved entitlement and source binding, then transfer actual escrowed tokens.
-    function claim(uint256 index, bytes32 sourceAccountId, uint256 amount, bytes32[] calldata proof) external {
+    function claim(uint256 index, bytes32 sourceAccountId, uint256 amount, bytes32[] calldata proof) external nonReentrant {
         if (!activated) revert NotActivated();
         if (address(settlement) == address(0) || claimed[index] || sourceAccountId == bytes32(0) ||
             amount == 0 || totalClaimed + amount > totalAllocation) revert InvalidClaim();
@@ -142,6 +153,7 @@ contract VerifiedTokenClaimLedger {
         address beneficiary = bindings.beneficiaryOf(sourceAccountId);
         if (!bindings.verifyBinding(sourceAccountId, beneficiary) || beneficiary != msg.sender) revert InvalidClaim();
 
+        if (proof.length > MAX_PROOF_LENGTH) revert ProofTooLong();
         bytes32 computed = leafHash(index, sourceAccountId, beneficiary, amount);
         for (uint256 i; i < proof.length; ++i) {
             bytes32 sibling = proof[i];

@@ -17,6 +17,7 @@ contract BackedTokenSettlement {
     uint256 public immutable allocationCap;
     uint256 public totalFunded;
     uint256 public totalSettled;
+    bool private _settlementEntered;
     mapping(bytes32 => bool) public settledClaim;
 
     event Funded(address indexed funder, uint256 amount, uint256 totalFunded);
@@ -29,6 +30,14 @@ contract BackedTokenSettlement {
     error InsufficientBacking();
     error DuplicateSettlement();
     error TransferFailed();
+    error ReentrantCall();
+
+    modifier nonReentrant() {
+        if (_settlementEntered) revert ReentrantCall();
+        _settlementEntered = true;
+        _;
+        _settlementEntered = false;
+    }
 
     constructor(address token_, address controller_, address funder_, uint256 allocationCap_) {
         if (token_ == address(0) || controller_ == address(0) || funder_ == address(0) || allocationCap_ == 0) {
@@ -51,7 +60,7 @@ contract BackedTokenSettlement {
         emit Funded(funder, amount, totalFunded);
     }
 
-    function settle(bytes32 claimId, address beneficiary, uint256 amount) external {
+    function settle(bytes32 claimId, address beneficiary, uint256 amount) external nonReentrant {
         if (msg.sender != controller) revert Unauthorized();
         if (claimId == bytes32(0) || beneficiary == address(0) || amount == 0) revert InvalidAmount();
         if (settledClaim[claimId]) revert DuplicateSettlement();
