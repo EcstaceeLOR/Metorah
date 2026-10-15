@@ -12,13 +12,36 @@ contract MetorahClaimLedger {
     bytes32 public immutable migrationId;
     bytes32 public immutable sourceFreezeEvidenceHash;
     uint256 public immutable totalAllocation;
-    address public immutable administrator;
+    address public administrator;
+    address public pendingAdministrator;
     bytes32 public merkleRoot;
     bytes32 public manifestHash;
     bool public committed;
     uint256 public totalClaimed;
     mapping(uint256 => bool) public claimed;
     mapping(address => uint256) public credits;
+
+    event AdministratorProposed(address indexed previousAdministrator, address indexed proposedAdministrator);
+    event AdministratorAccepted(address indexed previousAdministrator, address indexed newAdministrator);
+
+    /// @notice Propose a replacement authority. This alone confers no rights.
+    function proposeAdministrator(address replacement) external {
+        require(msg.sender == administrator, "not administrator");
+        require(!committed, "root already committed");
+        require(replacement != address(0) && replacement != administrator, "invalid administrator");
+        pendingAdministrator = replacement;
+        emit AdministratorProposed(administrator, replacement);
+    }
+
+    /// @notice Two-step acceptance protects deployments from assigning wrong keys.
+    function acceptAdministrator() external {
+        require(msg.sender == pendingAdministrator && pendingAdministrator != address(0), "not proposed administrator");
+        require(!committed, "root already committed");
+        address previous = administrator;
+        administrator = msg.sender;
+        pendingAdministrator = address(0);
+        emit AdministratorAccepted(previous, msg.sender);
+    }
 
     event RootCommitted(bytes32 indexed migrationId, bytes32 indexed merkleRoot, bytes32 manifestHash);
     event EntitlementClaimed(uint256 indexed index, bytes32 indexed sourceAccountId, address indexed beneficiary, uint256 amount);
