@@ -290,6 +290,10 @@ BEGIN
             'CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION reject_append_only_mutation()',
             table_name || '_append_only', table_name
         );
+        EXECUTE format(
+            'CREATE TRIGGER %I BEFORE TRUNCATE ON %I FOR EACH STATEMENT EXECUTE FUNCTION reject_append_only_mutation()',
+            table_name || '_no_truncate', table_name
+        );
     END LOOP;
 END;
 $$;
