@@ -74,6 +74,8 @@ def publish(root, migration_id, entries, *, consent_record=None):
         if kind in {"signed_report_redacted", "public_challenge_status"}:
             try:
                 document = json.loads(data, object_pairs_hook=_no_duplicate_keys)
+            except InvalidEvidence:
+                raise
             except (ValueError, UnicodeDecodeError) as exc:
                 raise InvalidEvidence("INVALID_PUBLIC_JSON") from exc
             _scan_public_json(document)
@@ -141,6 +143,8 @@ def verify(root, index_sha256):
     require(len(encoded) <= 1024 * 1024 and digest(encoded) == index_sha256, "INDEX_TAMPERED")
     try:
         index = json.loads(encoded, object_pairs_hook=_no_duplicate_keys)
+    except InvalidEvidence:
+        raise
     except (ValueError, UnicodeDecodeError) as exc:
         raise InvalidEvidence("INVALID_INDEX_JSON") from exc
     require(canonical(index) == encoded, "NONCANONICAL_INDEX")
@@ -168,6 +172,8 @@ def verify(root, index_sha256):
         if record["kind"] in {"signed_report_redacted", "public_challenge_status"}:
             try:
                 doc = json.loads(data, object_pairs_hook=_no_duplicate_keys)
+            except InvalidEvidence:
+                raise
             except (ValueError, UnicodeDecodeError) as exc:
                 raise InvalidEvidence("INVALID_PUBLIC_JSON") from exc
             _scan_public_json(doc)
