@@ -92,7 +92,7 @@ def can_download(actor: ArtifactActor, classification: str) -> bool:
     )
 
 
-def verify_artifact_content(content: bytes, content_sha256: str, expected_size: int, metadata: dict, expected_version: str | None = None) -> None:
+def verify_artifact_content(content: bytes, content_sha256: str, expected_size: int, metadata: dict, expected_version: str | None = None, expected_classification: str | None = None, expected_media_type: str | None = None) -> None:
     """Reject any read whose bytes, size, or immutable object metadata do not match."""
     if not re.fullmatch(r"[0-9a-f]{64}", content_sha256):
         raise ArtifactError(502, "artifact_integrity_failure")
@@ -103,6 +103,8 @@ def verify_artifact_content(content: bytes, content_sha256: str, expected_size: 
         or metadata.get("sha256") != content_sha256
         or int(metadata.get("content_length", len(content))) != expected_size
         or (expected_version is not None and metadata.get("version_id") != expected_version)
+        or (expected_classification is not None and metadata.get("classification") != expected_classification)
+        or (expected_media_type is not None and metadata.get("content_type") != expected_media_type)
     ):
         raise ArtifactError(502, "artifact_integrity_failure")
 
@@ -159,6 +161,7 @@ class S3CompatibleBackend:
             metadata = dict(response.get("Metadata", {}))
             metadata["content_length"] = int(response.get("ContentLength", len(body)))
             metadata["version_id"] = response.get("VersionId")
+            metadata["content_type"] = response.get("ContentType")
             return body, metadata
         except Exception as exc:
             raise ArtifactError(502, "object_storage_read_failed") from exc
@@ -358,7 +361,7 @@ class ArtifactStore:
         try:
             content, metadata = self._backend.get(str(key), str(version))
             try:
-                verify_artifact_content(content, content_sha256, int(size), metadata, str(version))
+                verify_artifact_content(content, content_sha256, int(size), metadata, str(version), str(classification), str(media_type))
                 if sha256(content).digest() != bytes(digest):
                     raise ArtifactError(502, "artifact_integrity_failure")
             except ArtifactError:
