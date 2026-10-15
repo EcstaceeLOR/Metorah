@@ -30,6 +30,10 @@ jobs:
       - run: python -m unittest discover -s test -p test_assurance.py -v
       - run: python -m unittest discover -s test -p test_lifecycle.py -v
       - run: python -m unittest discover -s test -p test_release_policy.py -v
+      - run: python -m unittest discover -s test -p test_enumeration.py -v
+      - run: python -m unittest discover -s test -p test_bindings.py -v
+      - run: python -m unittest discover -s test -p test_freeze_evidence.py -v
+      - run: python -m unittest discover -s test -p test_source_fixture_runner.py -v
       - run: cd local_model && python run_experiment.py
   js-workspace:
     runs-on: ubuntu-latest
@@ -56,7 +60,7 @@ jobs:
           targets: wasm32-unknown-unknown
           components: rustfmt, clippy, rust-src
       - run: rustc --version && cargo --version
-      - name: Verify checked-in WASM dependency lock
+      - name: Verify committed fixture Cargo.lock
         run: |
           test -s contracts/wasm/toolchain-smoke/Cargo.lock
           cargo metadata --manifest-path contracts/wasm/toolchain-smoke/Cargo.toml --locked --no-deps --format-version 1 > /dev/null
@@ -73,3 +77,41 @@ jobs:
           test -s contracts/wasm/toolchain-smoke/target/ink/metorah_toolchain_smoke.wasm
           test -s contracts/wasm/toolchain-smoke/target/ink/metorah_toolchain_smoke.contract
           sha256sum contracts/wasm/toolchain-smoke/target/ink/metorah_toolchain_smoke.*
+
+      - name: Compile actual source ledger to ink! WASM bundle (NOT chain deployed)
+        run: cargo contract build --release --manifest-path contracts/wasm/source-ledger/Cargo.toml
+      - name: Validate source-ledger WASM and contract bundle artifacts
+        run: |
+          set -eu
+          test -s contracts/wasm/source-ledger/target/ink/metorah_source_ledger.wasm
+          test -s contracts/wasm/source-ledger/target/ink/metorah_source_ledger.contract
+          sha256sum contracts/wasm/source-ledger/target/ink/metorah_source_ledger.*
+  wasm-source-ledger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.90.0
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy, rust-src
+      - run: rustc --version && cargo --version
+      - name: Confirm checked-in source-ledger Cargo.lock
+        run: |
+          test -s contracts/wasm/source-ledger/Cargo.lock
+          cargo metadata --manifest-path contracts/wasm/source-ledger/Cargo.toml --locked --no-deps --format-version 1 > /dev/null
+      - name: ink! source ledger unit tests
+        run: cargo test --manifest-path contracts/wasm/source-ledger/Cargo.toml --locked -- --nocapture
+      - name: Source ledger compile check
+        run: cargo check --manifest-path contracts/wasm/source-ledger/Cargo.toml --locked
+      - name: Execute real ink! offline six-holder fixture and retain evidence
+        run: python tools/fixtures/run_local.py --output local_model/artifacts/source-fixture-local.json
+      - name: Upload source fixture diagnostic report (offline only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-source-fixture
+          path: local_model/artifacts/source-fixture-local.json
+          if-no-files-found: ignore
+          retention-days: 7
