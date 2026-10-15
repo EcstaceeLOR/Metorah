@@ -35,6 +35,7 @@ CREATE TABLE idempotency_records (
     id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
     operation text NOT NULL CHECK (length(trim(operation)) > 0),
+    actor_subject text NOT NULL CHECK (length(trim(actor_subject)) > 0),
     idempotency_key text NOT NULL CHECK (length(trim(idempotency_key)) >= 8),
     request_hash bytea NOT NULL CHECK (octet_length(request_hash) = 32),
     response_status integer,
@@ -123,6 +124,12 @@ BEGIN
         IF OLD.status = 'paused' AND NEW.status = 'claiming'
             AND NOT EXISTS (SELECT 1 FROM claims WHERE migration_id = NEW.id AND state = 'settled') THEN
             RAISE EXCEPTION 'paused migration without prior claims must resume in activated state'
+                USING ERRCODE = '23514';
+        END IF;
+        IF NEW.status = 'cancelled' AND EXISTS (
+            SELECT 1 FROM claims WHERE migration_id = NEW.id AND state = 'settled'
+        ) THEN
+            RAISE EXCEPTION 'migration with settled claims cannot be cancelled'
                 USING ERRCODE = '23514';
         END IF;
 
