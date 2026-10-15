@@ -1524,6 +1524,7 @@
         "required": [
           "artifact_id",
           "object_id",
+          "migration_id",
           "content_sha256",
           "content_size",
           "media_type",
@@ -1574,6 +1575,10 @@
           "retention_until": {
             "type": "string",
             "format": "date-time"
+          },
+          "migration_id": {
+            "type": "string",
+            "format": "uuid"
           }
         }
       }
