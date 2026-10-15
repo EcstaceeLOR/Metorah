@@ -190,6 +190,25 @@ class MultiRPCChaosTests(unittest.TestCase):
         healthy, _ = q.observe_quorum()
         self.assertEqual(len(healthy), 3)
 
+    def test_different_finalized_heights_do_not_hide_fork_at_common_height(self):
+        # Same checkpoint, but cross-peer consensus history forks at height 5.
+        alternative = h(999)
+        self.rs[2].headers[alternative] = {
+            "number": "0x5", "parentHash": CHECKPOINT,
+            "stateRoot": h(205), "extrinsicsRoot": h(305),
+            "digest": {"logs": ["0x"]},
+        }
+        self.rs[2].by_height[5] = alternative
+        self.rs[2].finalized = alternative
+        self.fails("SPLIT_BRAIN_FINALIZED_ANCESTRY",
+                   lambda: self.make(max_head_delta=1).observe_quorum())
+
+    def test_checkpoint_header_digest_mismatch_rejected_independently_of_root(self):
+        self.rs[2].headers[CHECKPOINT]["digest"]["logs"] = ["0xab"]
+        self.fails("RPC_CHECKPOINT_SPLIT_BRAIN",
+                   lambda: self.make().observe_quorum())
+
+
     def test_lagged_peer_blocks_when_policy_requires_identical_height(self):
         self.rs[2].finalized = h(105)
         self.fails("STALLED_OR_STALE_FINALIZED_HEAD",

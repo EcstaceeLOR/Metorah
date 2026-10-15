@@ -17,6 +17,7 @@ The RPC methods are explicitly allowlisted. This does not prove the SCALE-encode
 - Different state roots, checkpoint heights, extrinsics roots, runtime metadata/version or genesis claims block the scan.
 - Two providers reporting different finalized block hashes at the **same finalized height** block the scan.
 - Different finalized heights are allowed **only** within the explicit \`--max-head-delta\` tolerance and only when both individually attest that the *same nominated checkpoint* is an ancestor. A stale provider outside that bound blocks all acquisition.
+- Even when heads differ within this tolerance, every responding operator must report the SAME canonical block hash at their lowest common finalized height. A fork hidden by staggered finalized heights is rejected.
 - A provider's reported finalized height cannot decrease between observations. Finality advances at the moving head do not silently change the storage-read checkpoint.
 - Wrong-chain, fork, missing-header and malformed responses are treated as **semantic failures** and block the scan. Only explicit network/transport errors may be excluded as temporary outages; failed providers never cast votes for a partial batch.
 - A single network outage is tolerated with at least two remaining independent agreeing and *post-read revalidated* RPC responses. Fewer than two complete votes results in a nonzero failure, leaving only previously committed batches in the journal.
@@ -43,7 +44,7 @@ A finished report says only \`MULTI_RPC_STORAGE_CONSISTENT_UNAUTHENTICATED\`. It
 
 - 3–9 endpoints, configurable quorum at least 2.
 - 1–4096 storage keys per plan, 1–64 keys per batch, at most 1 MiB raw bytes per returned value.
-- Bounded 0–4096 height ancestry checks via #27, configurable max finalized-head offset 0–64 blocks.
+- Bounded 0–4096 height ancestry checks via #27, configurable max finalized-head offset 0–64 blocks, and a hard 16 MiB journal limit; large key plans must be partitioned without changing the pinned checkpoint.
 - Remote RPC addresses require HTTPS with the standard OS certificate validator, no embedded credentials/query strings or HTTP redirects. Plain HTTP permitted only for loopback development.
 - No transaction signing, wallet connection, claim authorizations or root approvals.
 - The journal and report store **raw source values**; treat them as potentially confidential data, never log them publicly or commit customer details. Restrict filesystem permissions and storage access.

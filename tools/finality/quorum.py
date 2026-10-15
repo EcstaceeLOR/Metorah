@@ -26,6 +26,7 @@ MAX_PROVIDERS = 9
 MAX_KEYS = 4096
 MAX_BATCH = 64
 MAX_VALUE_BYTES = 1_048_576
+MAX_JOURNAL_BYTES = 16 * 1024 * 1024
 MAX_METADATA_BYTES = 1_048_576
 IDENTIFIER = re.compile(r"[a-z][a-z0-9_-]{1,47}\Z")
 TRANSIENT = frozenset({"RPC_READ_FAILED", "RPC_UNAVAILABLE", "RPC_HTTP_FAILURE", "RPC_ERROR_RESPONSE"})
@@ -326,7 +327,7 @@ class ResumableAcquisition:
     def _load(self) -> dict:
         if not self.journal.exists():
             return self._new()
-        if self.journal.stat().st_size > 16 * 1024 * 1024:
+        if self.journal.stat().st_size > MAX_JOURNAL_BYTES:
             raise QuorumError("JOURNAL_TOO_LARGE")
         try:
             def reject_duplicate(pairs):
@@ -380,6 +381,9 @@ class ResumableAcquisition:
         return doc
 
     def _write(self, document: dict) -> None:
+        payload = _json(self._seal(document)) + b"\n"
+        if len(payload) > MAX_JOURNAL_BYTES:
+            raise QuorumError("ACQUISITION_JOURNAL_LIMIT_EXCEEDED")
         self.journal.parent.mkdir(parents=True, exist_ok=True)
         target = None
         try:
@@ -388,7 +392,7 @@ class ResumableAcquisition:
                 prefix=".metorah-multirpc-", suffix=".tmp", delete=False,
             ) as stream:
                 target = Path(stream.name)
-                stream.write(_json(self._seal(document)) + b"\n")
+                stream.write(payload)
                 stream.flush()
                 os.fsync(stream.fileno())
             os.replace(target, self.journal)
