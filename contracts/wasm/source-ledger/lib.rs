@@ -40,6 +40,7 @@ mod metorah_source_ledger {
     /// deployment-wide domain fields, not arbitrarily caller-selected values.
     #[derive(Debug, Clone, PartialEq, Eq)]
     #[ink::scale_derive(Encode, Decode, TypeInfo)]
+    #[cfg_attr(feature = "std", derive(ink::storage::traits::StorageLayout))]
     pub struct BindingRecord {
         pub beneficiary: [u8; 20],
         pub nonce: u64,
