@@ -6,7 +6,7 @@ The initial relational schema is in `db/migrations/0001_initial.sql`; the matchi
 
 - **Tenancy and access**: `tenants`, `users`, `tenant_memberships`. Membership roles are constrained, and tenant/user deletion is restricted rather than cascading away operational history.
 - **Networks and assets**: `chains`, `source_assets`. A source asset is tied to one chain and unique by chain plus asset identity.
-- **Migration lifecycle**: `migrations`, `migration_state_events`. Migration status is constrained; states that require a source freeze also require a block number and 32-byte block hash. State transition events are append-only.
+- **Migration lifecycle**: `migrations`, `migration_state_events`. Migration status is constrained; states that require a source freeze also require a block number and 32-byte block hash. A status transition requires transaction-local `metorah.actor_type`, `metorah.actor_id`, and `metorah.reason_code` settings; a trigger writes the transition event in the same transaction, and the event is append-only.
 - **Manifests and verification**: `manifest_versions`, `verified_evidence`, `proof_verifications`. Digests and hashes have explicit 32-byte checks; manifest versions, evidence, and verification results are append-only records.
 - **Durable work**: `jobs`, `job_attempts`. Migration-scoped idempotency keys and per-job attempt numbers are unique; attempts are append-only.
 - **Approvals**: `approvals` stores public approval signatures and signer identities, not private signing keys or wallet secrets. A signer can provide only one decision for a given migration, approval kind, subject digest, and identity.
@@ -24,7 +24,7 @@ DATABASE_URL=postgresql://postgres:postgres@localhost:5432/metorah_test \
   bash tools/db/test_migrations.sh
 ```
 
-The script applies the schema, inserts a relational smoke fixture, proves append-only and uniqueness failures are rejected, rolls back to an empty schema, reapplies, and reruns the fixture. GitHub Actions provisions PostgreSQL 16 for this job.
+The script applies the schema, inserts a relational smoke fixture, verifies an attributed lifecycle transition is recorded atomically, proves append-only/uniqueness/attribution failures are rejected, rolls back to an empty schema, reapplies, and reruns the fixture. GitHub Actions provisions PostgreSQL 16 for this job.
 
 ## Security boundaries
 
