@@ -18,6 +18,10 @@ class SnapshotError(RuntimeError):
         self.code = code
 
 
+class SnapshotRetryableError(SnapshotError):
+    """Temporary verifier/transport outage; retry without accepting partial data."""
+
+
 @dataclass(frozen=True)
 class VerifiedCheckpoint:
     source_chain_id: str
@@ -417,16 +421,17 @@ class SnapshotWorker:
         verify_holder: Callable[[VerifiedCheckpoint, HolderRecord], VerifiedHolder | None],
         verifier_version: str,
     ) -> dict:
-        """Verify every proof at the pinned root, persist once, and reconcile on the final partition."""
+        """Verify every proof at the pinned root, persist once, and reconcile after the final partition."""
         if not verifier_version:
             raise SnapshotError("INVALID_VERIFIER_VERSION")
-        # Read the immutable run checkpoint and expected range before expensive proof verification.
+
         connection, cursor = self._open()
         try:
             cursor.execute(
                 "SELECT r.status, r.pinned_block_number, r.pinned_block_hash, r.state_root, r.genesis_hash, "
                 "r.source_chain_id, r.trie_state_version, r.finality_evidence_digest, "
-                "p.start_index, p.end_index, p.status, p.worker_id, p.lease_until, p.partial_digest "
+                "p.start_index, p.end_index, p.status, p.worker_id, p.lease_until, p.partial_digest, "
+                "p.lease_until >= now() "
                 "FROM snapshot_runs r JOIN snapshot_partitions p ON p.run_id=r.id "
                 "WHERE r.id=%s AND p.partition_index=%s",
                 (run_id, partition_index),
@@ -434,44 +439,44 @@ class SnapshotWorker:
             row = cursor.fetchone()
             if row is None:
                 raise SnapshotError("PARTITION_NOT_FOUND")
-            run_status, start, end = str(row[0]), int(row[8]), int(row[9])
             if row[10] == "completed":
-                # Idempotent retry must reproduce the same verified partition digest.
-                if len(records) != end - start:
-                    raise SnapshotError("COMPLETED_PARTITION_REPLAY_CONFLICT")
+                digest = bytes(row[13]) if row[13] is not None else b""
                 self._close(connection, cursor)
-                raise SnapshotError("PARTITION_ALREADY_COMPLETED")
-            if run_status != "scanning" or row[10] != "leased" or row[11] != worker_id or row[12] is None:
+                connection = None
+                return {"run_id": run_id, "partition_index": partition_index, "status": "completed",
+                        "partial_digest": digest.hex(), "idempotent_replay": True}
+            if row[0] != "scanning" or row[10] != "leased" or row[11] != worker_id or row[14] is not True:
                 raise SnapshotError("PARTITION_LEASE_LOST")
+            start, end = int(row[8]), int(row[9])
             checkpoint = VerifiedCheckpoint(
                 source_chain_id=str(row[5]), block_number=int(row[1]), block_hash=bytes(row[2]),
                 state_root=bytes(row[3]), genesis_hash=bytes(row[4]), trie_state_version=int(row[6]),
                 finality_evidence_digest=bytes(row[7]),
             )
-            if len(records) != end - start:
-                self._close(connection, cursor)
-                self._fail_run(run_id, partition_index, worker_id, "INCOMPLETE_PARTITION", {"expected": end-start, "actual": len(records)})
-                raise SnapshotError("INCOMPLETE_PARTITION")
-            if [item.source_index for item in records] != list(range(start, end)):
-                self._close(connection, cursor)
-                self._fail_run(run_id, partition_index, worker_id, "NONCONTIGUOUS_PARTITION", {})
-                raise SnapshotError("NONCONTIGUOUS_PARTITION")
             self._close(connection, cursor)
+            connection = None
         except BaseException as exc:
-            # _close is called on all explicit branches above; only close/rollback if cursor is still open.
-            if not getattr(cursor, "_closed", False):
-                try:
-                    self._close(connection, cursor, exc)
-                except Exception:
-                    pass
+            if connection is not None:
+                self._close(connection, cursor, exc)
             raise
+
+        if not isinstance(records, list) or len(records) != end - start:
+            self._fail_run(run_id, partition_index, worker_id, "INCOMPLETE_PARTITION",
+                           {"expected": end - start, "actual": len(records) if isinstance(records, list) else None})
+            raise SnapshotError("INCOMPLETE_PARTITION")
+        if any(not isinstance(item, HolderRecord) for item in records):
+            self._fail_run(run_id, partition_index, worker_id, "INVALID_HOLDER_RECORD")
+            raise SnapshotError("INVALID_HOLDER_RECORD")
+        if [item.source_index for item in records] != list(range(start, end)):
+            self._fail_run(run_id, partition_index, worker_id, "NONCONTIGUOUS_PARTITION")
+            raise SnapshotError("NONCONTIGUOUS_PARTITION")
 
         verified: list[VerifiedHolder] = []
         seen_accounts: set[bytes] = set()
         try:
             for record in records:
-                if not isinstance(record, HolderRecord) or type(record.amount) is not int or record.amount < 0:
-                    raise SnapshotError("INVALID_HOLDER_RECORD")
+                if type(record.amount) is not int or not 0 <= record.amount <= 10**78 - 1:
+                    raise SnapshotError("INVALID_HOLDER_AMOUNT")
                 if not isinstance(record.source_account_id, bytes) or not 1 <= len(record.source_account_id) <= 64:
                     raise SnapshotError("INVALID_SOURCE_ACCOUNT")
                 if not isinstance(record.storage_key, bytes) or not 1 <= len(record.storage_key) <= 512:
@@ -493,6 +498,10 @@ class SnapshotWorker:
                     raise SnapshotError("VERIFIED_VALUE_MISMATCH")
                 _digest(result.proof_digest, "proof_digest")
                 verified.append(result)
+        except SnapshotRetryableError as exc:
+            retry_queued = self.retry_partition(run_id, partition_index, worker_id, exc.code)
+            return {"run_id": run_id, "partition_index": partition_index,
+                    "status": "queued" if retry_queued else "failed", "failure_code": exc.code}
         except Exception as exc:
             code = exc.code if isinstance(exc, SnapshotError) else "VERIFIER_ERROR"
             self._fail_run(run_id, partition_index, worker_id, code, {"verifier_version": verifier_version})
@@ -503,20 +512,28 @@ class SnapshotWorker:
         partition_digest = canonical_inventory_digest(verified)
         proof_digest = sha256(b"".join(item.proof_digest for item in verified)).digest()
         amount_sum = sum(item.amount for item in verified)
+        if amount_sum > 10**78 - 1:
+            self._fail_run(run_id, partition_index, worker_id, "PARTITION_AMOUNT_OVERFLOW")
+            raise SnapshotError("PARTITION_AMOUNT_OVERFLOW")
+
         connection, cursor = self._open()
         try:
-            cursor.execute("SELECT status, expected_holder_count, expected_total_supply FROM snapshot_runs WHERE id=%s FOR UPDATE", (run_id,))
+            cursor.execute(
+                "SELECT status, expected_holder_count, expected_total_supply FROM snapshot_runs WHERE id=%s FOR UPDATE",
+                (run_id,),
+            )
             run = cursor.fetchone()
             cursor.execute(
-                "SELECT start_index, end_index, status, worker_id, lease_until, attempt_count "
+                "SELECT start_index, end_index, status, worker_id, lease_until, attempt_count, lease_until >= now() "
                 "FROM snapshot_partitions WHERE run_id=%s AND partition_index=%s FOR UPDATE",
                 (run_id, partition_index),
             )
             part = cursor.fetchone()
-            if run is None or part is None or run[0] != "scanning" or part[2] != "leased" or part[3] != worker_id or part[4] is None:
+            if run is None or part is None or run[0] != "scanning" or part[2] != "leased" or part[3] != worker_id or part[6] is not True:
                 raise SnapshotError("PARTITION_LEASE_LOST")
             if int(part[0]) != start or int(part[1]) != end:
                 raise SnapshotError("PARTITION_RANGE_CHANGED")
+
             for item in verified:
                 cursor.execute(
                     "INSERT INTO snapshot_holders (run_id, source_index, source_account_id, source_account_digest, "
@@ -536,22 +553,27 @@ class SnapshotWorker:
                 (len(verified), amount_sum, run_id),
             )
             cursor.execute(
-                "SELECT count(*) FILTER (WHERE status <> 'completed'), count(*) FROM snapshot_partitions WHERE run_id=%s",
+                "SELECT count(*) FILTER (WHERE status <> 'completed'), count(*) "
+                "FROM snapshot_partitions WHERE run_id=%s",
                 (run_id,),
             )
             incomplete, total_partitions = map(int, cursor.fetchone())
-            result = {"run_id": run_id, "partition_index": partition_index, "processed_count": len(verified), "status": "scanning"}
+            result = {"run_id": run_id, "partition_index": partition_index,
+                      "processed_count": len(verified), "status": "scanning"}
             if incomplete == 0 and total_partitions > 0:
                 cursor.execute("UPDATE snapshot_runs SET status='reconciling' WHERE id=%s", (run_id,))
                 cursor.execute(
-                    "SELECT partition_index, start_index, end_index FROM snapshot_partitions WHERE run_id=%s ORDER BY partition_index",
+                    "SELECT partition_index, start_index, end_index FROM snapshot_partitions "
+                    "WHERE run_id=%s ORDER BY partition_index",
                     (run_id,),
                 )
                 ranges = [(int(x[0]), int(x[1]), int(x[2])) for x in cursor.fetchall()]
                 expected_start = 0
+                range_mismatch = False
                 for expected_index, start_index, end_index in ranges:
-                    if expected_index < 0 or start_index != expected_start or end_index <= start_index:
-                        raise SnapshotError("PARTITION_COVERAGE_GAP")
+                    if expected_index != len([r for r in ranges if r[0] < expected_index]) or start_index != expected_start or end_index <= start_index:
+                        range_mismatch = True
+                        break
                     expected_start = end_index
                 cursor.execute(
                     "SELECT source_index, source_account_id, storage_key, amount, proof_digest "
@@ -568,7 +590,7 @@ class SnapshotWorker:
                 recombined = canonical_inventory_digest(all_records)
                 expected_count, expected_total = int(run[1]), int(run[2])
                 mismatches = []
-                if expected_start != expected_count or actual_count != expected_count:
+                if range_mismatch or expected_start != expected_count or actual_count != expected_count:
                     mismatches.append("HOLDER_COMPLETENESS_MISMATCH")
                 if actual_total != expected_total:
                     mismatches.append("TOTAL_SUPPLY_MISMATCH")
@@ -581,27 +603,32 @@ class SnapshotWorker:
                      recombined, verifier_version, mismatches),
                 )
                 if mismatches:
+                    failure_code = "+".join(mismatches)
                     cursor.execute(
                         "UPDATE snapshot_runs SET status='failed', failure_code=%s, recombined_digest=%s WHERE id=%s",
-                        ("+".join(mismatches), recombined, run_id),
+                        (failure_code, recombined, run_id),
                     )
                     cursor.execute(
                         "INSERT INTO snapshot_failures (run_id, failure_code, retryable, details) "
                         "VALUES (%s,%s,false,%s::jsonb)",
-                        (run_id, "+".join(mismatches), json.dumps({"actual_count":actual_count,"actual_total":actual_total})),
+                        (run_id, failure_code, json.dumps({"actual_count": actual_count, "actual_total": actual_total})),
                     )
-                    result.update({"status":"failed","failure_code":"+".join(mismatches)})
+                    result.update({"status": "failed", "failure_code": failure_code})
                 else:
                     cursor.execute(
                         "UPDATE snapshot_runs SET status='reconciled', recombined_digest=%s WHERE id=%s",
                         (recombined, run_id),
                     )
-                    result.update({"status":"reconciled","recombined_digest":recombined.hex(),"holder_count":actual_count,"total_supply":str(actual_total)})
+                    result.update({"status": "reconciled", "recombined_digest": recombined.hex(),
+                                   "holder_count": actual_count, "total_supply": str(actual_total)})
             self._close(connection, cursor)
+            connection = None
             return result
         except BaseException as exc:
-            self._close(connection, cursor, exc)
-            if getattr(exc, "sqlstate", None) in {"23505", "23503", "23514"}:
-                self._fail_run(run_id, partition_index, worker_id, "DUPLICATE_OR_INVALID_SNAPSHOT_RECORD", {"verifier_version": verifier_version})
+            if connection is not None:
+                self._close(connection, cursor, exc)
+            if getattr(exc, "sqlstate", None) in {"23505", "23503", "23514", "22003"}:
+                self._fail_run(run_id, partition_index, worker_id, "DUPLICATE_OR_INVALID_SNAPSHOT_RECORD",
+                               {"verifier_version": verifier_version})
                 raise SnapshotError("DUPLICATE_OR_INVALID_SNAPSHOT_RECORD") from exc
             raise
