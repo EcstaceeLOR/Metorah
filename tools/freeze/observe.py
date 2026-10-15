@@ -239,7 +239,7 @@ def observe(
         "genesis": genesis, "source": source, "code": observed_code, "tx": tx,
         "block": block, "state_root": freeze_header["state_root"],
         "height": height, "finalized_observation_height": final_header["number"],
-        "source": source, "owner": signer, "extrinsic_index": extrinsic,
+        "owner": signer, "extrinsic_index": extrinsic,
         "snapshot": snap,
         "destination": {
             "chain_id": chain_id, "contract": dest_contract, "migration_id": migration,
