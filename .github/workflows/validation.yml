@@ -64,6 +64,10 @@ jobs:
       - run: pnpm --version
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
+      - name: Validate public OpenAPI contract and local references
+        run: node tools/api/validate-openapi.mjs
+      - name: Test tenant isolation and role policy
+        run: node --test tools/api/tenant-policy.test.mjs
       - run: pnpm -r test
       - name: Run independent TypeScript golden SHA256 encoder
         run: node --experimental-strip-types --test tools/manifest/canonical_v1.test.ts
