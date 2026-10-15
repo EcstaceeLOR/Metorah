@@ -43,10 +43,27 @@ INSERT INTO proof_verifications (
  '00000000-0000-4000-8000-000000000006', '00000000-0000-4000-8000-000000000007',
  'merkle', decode(repeat('44', 32), 'hex'), 'verified', 'test-verifier/1'
 );
-INSERT INTO jobs (id, migration_id, job_kind, idempotency_key, state)
-VALUES ('00000000-0000-4000-8000-000000000009', '00000000-0000-4000-8000-000000000006', 'verify', 'verify-v1', 'succeeded');
+INSERT INTO jobs (id, migration_id, job_kind, idempotency_key, state, payload)
+VALUES ('00000000-0000-4000-8000-000000000009', '00000000-0000-4000-8000-000000000006', 'verify', 'verify-v1', 'queued', '{"manifest_version":1}'::jsonb);
+UPDATE jobs SET state='running', attempt_count=1, worker_id='test-worker',
+    last_started_at=now(), last_heartbeat_at=now(), lease_until=now() + interval '1 minute'
+WHERE id='00000000-0000-4000-8000-000000000009';
+INSERT INTO job_attempt_events (job_id, attempt_number, event_type, worker_id)
+VALUES ('00000000-0000-4000-8000-000000000009', 1, 'started', 'test-worker');
+UPDATE jobs SET state='succeeded', worker_id=NULL, lease_until=NULL
+WHERE id='00000000-0000-4000-8000-000000000009';
 INSERT INTO job_attempts (job_id, attempt_number, started_at, finished_at, outcome)
 VALUES ('00000000-0000-4000-8000-000000000009', 1, now() - interval '1 minute', now(), 'succeeded');
+INSERT INTO job_attempt_events (job_id, attempt_number, event_type, worker_id)
+VALUES ('00000000-0000-4000-8000-000000000009', 1, 'succeeded', 'test-worker');
+
+INSERT INTO idempotency_records (
+ tenant_id, operation, actor_subject, idempotency_key, request_hash, response_status, response_body, resource_id
+) VALUES (
+ '00000000-0000-4000-8000-000000000001', 'migration.transition', 'user-operator', 'transition-v1-key',
+ decode(repeat('bb', 32), 'hex'), 200, '{"status":"verifying","version":2}'::jsonb,
+ '00000000-0000-4000-8000-000000000006'
+);
 INSERT INTO approvals (
  migration_id, manifest_version_id, approval_kind, subject_digest, signer_identity, signature, decision
 ) VALUES (
@@ -95,5 +112,9 @@ BEGIN
     IF (SELECT count(*) FROM claims WHERE state = 'settled') <> 1 THEN RAISE EXCEPTION 'settled claim missing'; END IF;
     IF (SELECT count(*) FROM audit_events) <> 1 THEN RAISE EXCEPTION 'audit row missing'; END IF;
     IF (SELECT count(*) FROM migration_state_events WHERE migration_id = '00000000-0000-4000-8000-000000000006') <> 2 THEN RAISE EXCEPTION 'status transition was not recorded atomically'; END IF;
+    IF (SELECT count(*) FROM outbox_events) <> 4 THEN RAISE EXCEPTION 'transactional outbox events missing'; END IF;
+    IF (SELECT count(*) FROM outbox_delivery) <> 4 THEN RAISE EXCEPTION 'outbox delivery rows missing'; END IF;
+    IF (SELECT count(*) FROM job_attempt_events WHERE job_id = '00000000-0000-4000-8000-000000000009') <> 2 THEN RAISE EXCEPTION 'job attempt timeline missing'; END IF;
+    IF (SELECT count(*) FROM idempotency_records WHERE operation = 'migration.transition') <> 1 THEN RAISE EXCEPTION 'idempotency record missing'; END IF;
 END;
 $$;
