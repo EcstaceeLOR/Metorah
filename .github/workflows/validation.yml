@@ -43,6 +43,8 @@ jobs:
       - run: python -m unittest discover -s test -p test_source_fixture_runner.py -v
       - run: python -m unittest discover -s test -p test_manifest_v1.py -v
       - run: python -m unittest discover -s test -p test_verification_reports.py -v
+      - name: Independently verify redacted public evidence and privacy denials
+        run: python -m unittest discover -s test -p test_transparency_index.py -v
       - name: Verify committed 1/2/3/257 holder golden fixture bytes
         run: python tools/manifest/generate_golden.py --check
       - run: python -m unittest discover -s test -p test_golden_vectors.py -v
