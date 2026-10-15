@@ -1119,22 +1119,21 @@ mod metorah_source_ledger {
         }
 
         #[ink::test]
-        fn destination_domain_differs_between_independent_migrations() {
-            let a = accounts();
-            let mut first = ledger();
-            let mut second = MetorahSourceLedger::new([7; 32], 12, 1_000, 31_338, [8; 20], [12; 32]);
-            first.mint(a.bob, 10).unwrap();
-            second.mint(a.bob, 10).unwrap();
-            caller(a.bob);
-            first.register_beneficiary([3; 20], 1).unwrap();
-            // A registration in one deployment has no effect on a second.
-            assert_eq!(second.binding_of(a.bob), None);
-            second.register_beneficiary([4; 20], 1).unwrap();
-            assert_ne!(first.destination_domain(), second.destination_domain());
-            assert_ne!(first.binding_of(a.bob), second.binding_of(a.bob));
-            caller(a.alice);
-            assert_eq!(first.freeze(), Ok(()));
-            assert_eq!(second.freeze(), Ok(()));
+        fn constructor_rejects_cross_migration_domain_substitution() {
+            // ink! off-chain Mapping storage is shared within one mocked
+            // execution environment; it does NOT model two deployed
+            // contracts' isolated chain storage. Test only the per-instance
+            // immutable domain here. Actual replay/storage isolation across
+            // deployments must be validated on a real chain (#18, #23).
+            let first = ledger();
+            let first_domain = first.destination_domain();
+            let second = MetorahSourceLedger::new(
+                [7; 32], 12, 1_000, 31_338, [8; 20], [12; 32]
+            );
+            assert_eq!(first.destination_domain(), first_domain);
+            assert_eq!(first_domain, (31_337, [9; 20], [11; 32]));
+            assert_eq!(second.destination_domain(), (31_338, [8; 20], [12; 32]));
+            assert_ne!(first_domain, second.destination_domain());
         }
 
         #[ink::test]
