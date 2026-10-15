@@ -23,6 +23,7 @@ READ_ONLY_METHODS = frozenset({
     "chain_getFinalizedHead",
     "chain_getHeader",
     "state_getRuntimeVersion",
+    "state_getMetadata",
     "state_getStorage",
     "state_getReadProof",
 })
@@ -221,6 +222,8 @@ def observe(
         "snapshot_block_number": checkpoint_header["number"],
         "snapshot_state_root": checkpoint_header["state_root"],
         "snapshot_extrinsics_root": checkpoint_header["extrinsics_root"],
+        "snapshot_parent_hash": checkpoint_header["parent_hash"],
+        "snapshot_digest_logs": checkpoint_header["digest_logs"],
         "reported_finalized_hash": finalized,
         "reported_finalized_number": head["number"],
         "finalized_head_state_root": head["state_root"],
