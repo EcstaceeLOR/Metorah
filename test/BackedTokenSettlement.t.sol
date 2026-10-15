@@ -63,4 +63,22 @@ contract BackedTokenSettlementTest {
         require(!ok, "fee-on-transfer payout accepted");
         require(settlement.totalSettled() == 0, "state not reverted");
     }
+
+    function testAccountingSnapshotSeparatesAuthorizationFundingAndLiability() public {
+        settlement.fund(500);
+        settlement.settle(keccak256("claim-snapshot"), beneficiary, 200);
+
+        BackedTokenSettlement.AccountingSnapshot memory snapshot = settlement.accountingSnapshot();
+        require(snapshot.authorizedAllocation == 1000, "authorized allocation");
+        require(snapshot.totalFunded == 500, "physical funding ledger");
+        require(snapshot.totalSettled == 200, "settled total");
+        require(snapshot.escrowTokenBalance == 300, "actual escrow balance");
+        require(snapshot.remainingAuthorizedAllocation == 800, "remaining authorized");
+        require(snapshot.remainingFundedLiability == 300, "funded liability");
+        require(snapshot.unfundedAuthorizedAllocation == 500, "unfunded authorization");
+        require(snapshot.availableBacking == 300, "available backing");
+        require(snapshot.surplusTokenBalance == 0, "unexpected surplus");
+        require(settlement.remainingFundedLiability() == 300, "liability getter");
+        require(settlement.unfundedAuthorizedAllocation() == 500, "unfunded getter");
+    }
 }
