@@ -489,7 +489,10 @@ class CommandTests(unittest.TestCase):
         alt = self.folder / "outside.json"
         alt.write_bytes(original.read_bytes())
         original.unlink()
-        original.symlink_to(alt)
+        try:
+            original.symlink_to(alt)
+        except OSError:
+            self.skipTest("This Windows runner cannot create symlinks")
         self.assertEqual(CLI.main(self.args()), 2)
         self.assertFalse(self.report.exists())
 

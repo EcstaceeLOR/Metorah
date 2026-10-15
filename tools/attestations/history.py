@@ -130,11 +130,12 @@ def _atomic_write(path: Path, value: dict) -> None:
             raise ReportError("INVALID_HISTORY_PATH")
         os.replace(temp, path)
         # fsync the directory after replacing, for durable rename on POSIX.
-        fd = os.open(path.parent, os.O_RDONLY)
-        try:
-            os.fsync(fd)
-        finally:
-            os.close(fd)
+        if os.name == "posix":
+            fd = os.open(path.parent, os.O_RDONLY)
+            try:
+                os.fsync(fd)
+            finally:
+                os.close(fd)
     except OSError as exc:
         raise ReportError("HISTORY_WRITE_FAILED") from exc
     finally:
