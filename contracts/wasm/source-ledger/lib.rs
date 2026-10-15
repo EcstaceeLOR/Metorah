@@ -1188,7 +1188,7 @@ mod metorah_source_ledger {
             let mut l = seeded();
             assert_eq!(l.freeze_marker(), None);
             test::advance_block::<ink::env::DefaultEnvironment>();
-            let freeze_height = l.env().block_number();
+            let freeze_height = ink::env::block_number::<ink::env::DefaultEnvironment>();
             let prior_events = test::recorded_events().count();
             assert_eq!(l.freeze(), Ok(()));
             assert_eq!(test::recorded_events().count(), prior_events + 1);
