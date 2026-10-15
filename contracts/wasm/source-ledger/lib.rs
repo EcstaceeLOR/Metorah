@@ -1,0 +1,603 @@
+#![cfg_attr(not(feature = "std"), no_std, no_main)]
+//! Metorah source-side fungible ledger — development implementation for #20.
+//!
+//! WARNING: NOT deployed, NOT Portaldot V3-qualified, NOT externally audited.
+//! A local ink! unit test is not a finality/storage proof or complete migration.
+//! User beneficiary registration, canonical proofs and chain finality are separate issues.
+
+#[ink::contract]
+mod metorah_source_ledger {
+    use ink::prelude::vec::Vec;
+    use ink::storage::Mapping;
+
+    const PAGE_LIMIT: u32 = 64;
+
+    /// Only prevalidated transitions are allowed to mutate persistent state.
+    #[derive(Debug, PartialEq, Eq)]
+    #[ink::scale_derive(Encode, Decode, TypeInfo)]
+    pub enum LedgerError {
+        Unauthorized,
+        AlreadyFrozen,
+        Frozen,
+        InvalidAmount,
+        InvalidRecipient,
+        SelfTransfer,
+        InsufficientBalance,
+        SupplyCapExceeded,
+        ArithmeticOverflow,
+        HolderRegistryFull,
+    }
+
+    pub type Result<T> = core::result::Result<T, LedgerError>;
+
+    /// The complete historical set of funded holders can be read by dense index.
+    /// A zero balance does not remove a holder, preventing holes or index reuse.
+    #[ink(storage)]
+    pub struct MetorahSourceLedger {
+        owner: AccountId,
+        frozen: bool,
+        asset_id: [u8; 32],
+        decimals: u8,
+        max_supply: Balance,
+        total_supply: Balance,
+        balances: Mapping<AccountId, Balance>,
+        holders: Mapping<u32, AccountId>,
+        slots_plus_one: Mapping<AccountId, u32>,
+        holder_count: u32,
+        active_holder_count: u32,
+    }
+
+    #[ink(event)]
+    pub struct Issued {
+        #[ink(topic)]
+        to: AccountId,
+        amount: Balance,
+    }
+
+    #[ink(event)]
+    pub struct Transferred {
+        #[ink(topic)]
+        from: AccountId,
+        #[ink(topic)]
+        to: AccountId,
+        amount: Balance,
+    }
+
+    #[ink(event)]
+    pub struct Burned {
+        #[ink(topic)]
+        from: AccountId,
+        amount: Balance,
+    }
+
+    #[ink(event)]
+    pub struct SourceFrozen {
+        #[ink(topic)]
+        by: AccountId,
+        total_supply: Balance,
+        holder_count: u32,
+        active_holder_count: u32,
+    }
+
+    impl MetorahSourceLedger {
+        /// No pre-funded or hidden allocations are created by deployment.
+        /// The asset ID is application-defined, NOT a chain-authenticated claim.
+        #[ink(constructor)]
+        pub fn new(asset_id: [u8; 32], decimals: u8, max_supply: Balance) -> Self {
+            assert!(asset_id != [0u8; 32], "asset ID cannot be all zero");
+            assert!(decimals <= 18, "unsupported decimal precision");
+            assert!(max_supply > 0, "supply cap must be positive");
+            Self {
+                owner: Self::env().caller(),
+                frozen: false,
+                asset_id,
+                decimals,
+                max_supply,
+                total_supply: 0,
+                balances: Mapping::default(),
+                holders: Mapping::default(),
+                slots_plus_one: Mapping::default(),
+                holder_count: 0,
+                active_holder_count: 0,
+            }
+        }
+
+        #[ink(message)]
+        pub fn owner(&self) -> AccountId {
+            self.owner
+        }
+
+        #[ink(message)]
+        pub fn asset_id(&self) -> [u8; 32] {
+            self.asset_id
+        }
+
+        #[ink(message)]
+        pub fn decimals(&self) -> u8 {
+            self.decimals
+        }
+
+        #[ink(message)]
+        pub fn max_supply(&self) -> Balance {
+            self.max_supply
+        }
+
+        #[ink(message)]
+        pub fn total_supply(&self) -> Balance {
+            self.total_supply
+        }
+
+        #[ink(message)]
+        pub fn is_frozen(&self) -> bool {
+            self.frozen
+        }
+
+        #[ink(message)]
+        pub fn holder_count(&self) -> u32 {
+            self.holder_count
+        }
+
+        #[ink(message)]
+        pub fn active_holder_count(&self) -> u32 {
+            self.active_holder_count
+        }
+
+        #[ink(message)]
+        pub fn balance_of(&self, account: AccountId) -> Balance {
+            self.balance_of_ref(&account)
+        }
+
+        /// Stable index, even if an account later has zero balance.
+        #[ink(message)]
+        pub fn index_of(&self, account: AccountId) -> Option<u32> {
+            self.slots_plus_one.get(account).map(|slot| slot - 1)
+        }
+
+        #[ink(message)]
+        pub fn holder_at(&self, index: u32) -> Option<(AccountId, Balance)> {
+            if index >= self.holder_count {
+                return None;
+            }
+            self.holders.get(index).map(|account| {
+                let amount = self.balance_of_ref(&account);
+                (account, amount)
+            })
+        }
+
+        /// Read-only, bounded pagination. Does not prove the RPC response
+        /// is authentic; a finalized storage proof is required separately.
+        #[ink(message)]
+        pub fn holder_page(&self, start: u32, limit: u32) -> Vec<(AccountId, Balance)> {
+            let end = core::cmp::min(
+                self.holder_count,
+                start.saturating_add(core::cmp::min(limit, PAGE_LIMIT)),
+            );
+            let mut output = Vec::new();
+            for index in start..end {
+                if let Some(account) = self.holders.get(index) {
+                    output.push((account, self.balance_of_ref(&account)));
+                }
+            }
+            output
+        }
+
+        fn balance_of_ref(&self, account: &AccountId) -> Balance {
+            self.balances.get(account).unwrap_or(0)
+        }
+
+        fn ensure_open(&self) -> Result<()> {
+            if self.frozen {
+                Err(LedgerError::Frozen)
+            } else {
+                Ok(())
+            }
+        }
+
+        fn ensure_admin(&self) -> Result<()> {
+            if self.env().caller() != self.owner {
+                Err(LedgerError::Unauthorized)
+            } else {
+                Ok(())
+            }
+        }
+
+        fn ensure_account(account: &AccountId) -> Result<()> {
+            if *account == AccountId::from([0u8; 32]) {
+                Err(LedgerError::InvalidRecipient)
+            } else {
+                Ok(())
+            }
+        }
+
+        /// All callers preflight this BEFORE any persistent state mutation.
+        fn ensure_holder_capacity(&self, account: &AccountId) -> Result<()> {
+            if self.slots_plus_one.get(account).is_none() && self.holder_count == u32::MAX {
+                return Err(LedgerError::HolderRegistryFull);
+            }
+            Ok(())
+        }
+
+        /// No fallible operation is allowed after this method begins.
+        /// A historical holder is registered only once, on the first deposit.
+        fn register_holder(&mut self, account: &AccountId) {
+            if self.slots_plus_one.get(account).is_none() {
+                let slot = self.holder_count + 1; // prechecked against u32::MAX
+                self.holders.insert(self.holder_count, account);
+                self.slots_plus_one.insert(account, &slot);
+                self.holder_count = slot;
+            }
+        }
+
+        /// Only the issuance authority may create units; never above cap.
+        /// Error paths are preflighted before any storage write.
+        #[ink(message)]
+        pub fn mint(&mut self, to: AccountId, amount: Balance) -> Result<()> {
+            self.ensure_open()?;
+            self.ensure_admin()?;
+            Self::ensure_account(&to)?;
+            if amount == 0 {
+                return Err(LedgerError::InvalidAmount);
+            }
+            let current = self.balance_of_ref(&to);
+            let next_balance = current.checked_add(amount)
+                .ok_or(LedgerError::ArithmeticOverflow)?;
+            let next_supply = self.total_supply.checked_add(amount)
+                .ok_or(LedgerError::ArithmeticOverflow)?;
+            if next_supply > self.max_supply {
+                return Err(LedgerError::SupplyCapExceeded);
+            }
+            self.ensure_holder_capacity(&to)?;
+            let next_active = if current == 0 {
+                self.active_holder_count.checked_add(1)
+                    .ok_or(LedgerError::ArithmeticOverflow)?
+            } else {
+                self.active_holder_count
+            };
+            self.register_holder(&to);
+            self.balances.insert(&to, &next_balance);
+            self.active_holder_count = next_active;
+            self.total_supply = next_supply;
+            self.env().emit_event(Issued { to, amount });
+            Ok(())
+        }
+
+        /// Holder-authorized transfer; admin has NO allowance to move
+        /// another person's balance.
+        #[ink(message)]
+        pub fn transfer(&mut self, to: AccountId, amount: Balance) -> Result<()> {
+            self.ensure_open()?;
+            Self::ensure_account(&to)?;
+            let from = self.env().caller();
+            if from == to {
+                return Err(LedgerError::SelfTransfer);
+            }
+            if amount == 0 {
+                return Err(LedgerError::InvalidAmount);
+            }
+            let from_balance = self.balance_of_ref(&from);
+            if from_balance < amount {
+                return Err(LedgerError::InsufficientBalance);
+            }
+            let to_balance = self.balance_of_ref(&to);
+            let next_to = to_balance.checked_add(amount)
+                .ok_or(LedgerError::ArithmeticOverflow)?;
+            let next_from = from_balance - amount;
+            self.ensure_holder_capacity(&to)?;
+            let after_outflow = if next_from == 0 {
+                self.active_holder_count.checked_sub(1)
+                    .ok_or(LedgerError::ArithmeticOverflow)?
+            } else {
+                self.active_holder_count
+            };
+            let next_active = if to_balance == 0 {
+                after_outflow.checked_add(1)
+                    .ok_or(LedgerError::ArithmeticOverflow)?
+            } else {
+                after_outflow
+            };
+            self.register_holder(&to);
+            self.balances.insert(&from, &next_from);
+            self.balances.insert(&to, &next_to);
+            self.active_holder_count = next_active;
+            self.env().emit_event(Transferred { from, to, amount });
+            Ok(())
+        }
+
+        /// Only the account owner can destroy their own units.
+        #[ink(message)]
+        pub fn burn(&mut self, amount: Balance) -> Result<()> {
+            self.ensure_open()?;
+            if amount == 0 {
+                return Err(LedgerError::InvalidAmount);
+            }
+            let from = self.env().caller();
+            let current = self.balance_of_ref(&from);
+            if current < amount {
+                return Err(LedgerError::InsufficientBalance);
+            }
+            let next_balance = current - amount;
+            let next_supply = self.total_supply.checked_sub(amount)
+                .ok_or(LedgerError::ArithmeticOverflow)?;
+            let next_active = if next_balance == 0 {
+                self.active_holder_count.checked_sub(1)
+                    .ok_or(LedgerError::ArithmeticOverflow)?
+            } else {
+                self.active_holder_count
+            };
+            self.balances.insert(&from, &next_balance);
+            self.total_supply = next_supply;
+            self.active_holder_count = next_active;
+            self.env().emit_event(Burned { from, amount });
+            Ok(())
+        }
+
+        /// Irreversible in this contract; no unlock or state-changing
+        /// owner-renewal method exists. Chain-level runtime upgrades still
+        /// require independent authorization and review.
+        #[ink(message)]
+        pub fn freeze(&mut self) -> Result<()> {
+            self.ensure_admin()?;
+            if self.frozen {
+                return Err(LedgerError::AlreadyFrozen);
+            }
+            self.frozen = true;
+            self.env().emit_event(SourceFrozen {
+                by: self.env().caller(),
+                total_supply: self.total_supply,
+                holder_count: self.holder_count,
+                active_holder_count: self.active_holder_count,
+            });
+            Ok(())
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use ink::env::test;
+
+        fn accounts() -> test::DefaultAccounts<ink::env::DefaultEnvironment> {
+            test::default_accounts::<ink::env::DefaultEnvironment>()
+        }
+        fn caller(who: AccountId) {
+            test::set_caller::<ink::env::DefaultEnvironment>(who);
+        }
+        fn ledger() -> MetorahSourceLedger {
+            MetorahSourceLedger::new([7; 32], 12, 1_000)
+        }
+        fn seeded() -> MetorahSourceLedger {
+            let a = accounts();
+            caller(a.alice);
+            let mut l = ledger();
+            assert_eq!(l.mint(a.alice, 60), Ok(()));
+            assert_eq!(l.mint(a.bob, 40), Ok(()));
+            l
+        }
+        #[ink::test]
+        fn fresh_deployment_no_hidden_supply() {
+            let a = accounts();
+            let l = ledger();
+            assert_eq!(l.owner(), a.alice);
+            assert_eq!(l.total_supply(), 0);
+            assert_eq!(l.holder_count(), 0);
+            assert_eq!(l.active_holder_count(), 0);
+            assert_eq!(l.asset_id(), [7; 32]);
+            assert_eq!(l.decimals(), 12);
+            assert!(!l.is_frozen());
+        }
+        #[ink::test]
+        #[should_panic(expected = "asset ID cannot be all zero")]
+        fn invalid_asset_id_rejected() {
+            MetorahSourceLedger::new([0; 32], 12, 100);
+        }
+        #[ink::test]
+        #[should_panic(expected = "unsupported decimal precision")]
+        fn excessive_decimals_rejected() {
+            MetorahSourceLedger::new([1; 32], 19, 100);
+        }
+        #[ink::test]
+        #[should_panic(expected = "supply cap must be positive")]
+        fn invalid_cap_rejected() {
+            MetorahSourceLedger::new([1; 32], 12, 0);
+        }
+        #[ink::test]
+        fn unauthorized_mint_fails_without_mutation() {
+            let a = accounts();
+            let mut l = ledger();
+            caller(a.bob);
+            assert_eq!(l.mint(a.bob, 10), Err(LedgerError::Unauthorized));
+            assert_eq!(l.total_supply(), 0);
+            assert_eq!(l.holder_count(), 0);
+        }
+        #[ink::test]
+        fn mint_registers_unique_holders_and_supply() {
+            let a = accounts();
+            let mut l = ledger();
+            assert_eq!(l.mint(a.bob, 10), Ok(()));
+            assert_eq!(l.mint(a.bob, 15), Ok(()));
+            assert_eq!(l.total_supply(), 25);
+            assert_eq!(l.holder_count(), 1);
+            assert_eq!(l.active_holder_count(), 1);
+            assert_eq!(l.index_of(a.bob), Some(0));
+            assert_eq!(l.holder_at(0), Some((a.bob, 25)));
+        }
+        #[ink::test]
+        fn cap_violation_is_atomic() {
+            let a = accounts();
+            let mut l = ledger();
+            assert_eq!(l.mint(a.alice, 950), Ok(()));
+            assert_eq!(l.mint(a.bob, 51), Err(LedgerError::SupplyCapExceeded));
+            assert_eq!(l.balance_of(a.bob), 0);
+            assert_eq!(l.holder_count(), 1);
+            assert_eq!(l.total_supply(), 950);
+        }
+        #[ink::test]
+        fn overflow_never_partially_mutates() {
+            let a = accounts();
+            let mut l = MetorahSourceLedger::new([1; 32], 18, u128::MAX);
+            assert_eq!(l.mint(a.alice, u128::MAX), Ok(()));
+            assert_eq!(l.mint(a.bob, 1), Err(LedgerError::ArithmeticOverflow));
+            assert_eq!(l.total_supply(), u128::MAX);
+            assert_eq!(l.holder_count(), 1);
+        }
+        #[ink::test]
+        fn zero_mint_and_zero_address_disallowed() {
+            let a = accounts();
+            let mut l = ledger();
+            assert_eq!(l.mint(a.bob, 0), Err(LedgerError::InvalidAmount));
+            assert_eq!(l.mint(AccountId::from([0;32]), 5), Err(LedgerError::InvalidRecipient));
+            assert_eq!(l.holder_count(), 0);
+        }
+        #[ink::test]
+        fn transfer_preserves_total_and_registers_recipient() {
+            let a = accounts();
+            let mut l = ledger();
+            l.mint(a.alice, 100).unwrap();
+            assert_eq!(l.transfer(a.bob, 35), Ok(()));
+            assert_eq!(l.balance_of(a.alice), 65);
+            assert_eq!(l.balance_of(a.bob), 35);
+            assert_eq!(l.total_supply(), 100);
+            assert_eq!(l.holder_count(), 2);
+            assert_eq!(l.active_holder_count(), 2);
+        }
+        #[ink::test]
+        fn transfer_full_amount_updates_active_count() {
+            let a = accounts();
+            let mut l = ledger();
+            l.mint(a.alice, 100).unwrap();
+            l.transfer(a.bob, 100).unwrap();
+            assert_eq!(l.active_holder_count(), 1);
+            assert_eq!(l.holder_count(), 2);
+            assert_eq!(l.holder_at(0), Some((a.alice, 0)));
+            assert_eq!(l.holder_at(1), Some((a.bob, 100)));
+        }
+        #[ink::test]
+        fn transferring_back_does_not_reuse_holder_index() {
+            let a = accounts();
+            let mut l = seeded();
+            caller(a.bob);
+            l.transfer(a.alice, 40).unwrap();
+            caller(a.alice);
+            l.transfer(a.bob, 20).unwrap();
+            assert_eq!(l.holder_count(), 2);
+            assert_eq!(l.active_holder_count(), 2);
+            assert_eq!(l.index_of(a.bob), Some(1));
+            assert_eq!(l.total_supply(), 100);
+        }
+        #[ink::test]
+        fn insufficient_or_self_transfer_cannot_change_balance() {
+            let a = accounts();
+            let mut l = seeded();
+            assert_eq!(l.transfer(a.bob, 61), Err(LedgerError::InsufficientBalance));
+            assert_eq!(l.transfer(a.alice, 1), Err(LedgerError::SelfTransfer));
+            assert_eq!(l.transfer(a.bob, 0), Err(LedgerError::InvalidAmount));
+            assert_eq!(l.balance_of(a.alice), 60);
+            assert_eq!(l.total_supply(), 100);
+        }
+        #[ink::test]
+        fn admin_cannot_transfer_from_other_holder() {
+            let a = accounts();
+            let mut l = seeded();
+            caller(a.bob);
+            assert_eq!(l.transfer(a.charlie, 41), Err(LedgerError::InsufficientBalance));
+            assert_eq!(l.balance_of(a.alice), 60);
+            assert_eq!(l.balance_of(a.bob), 40);
+        }
+        #[ink::test]
+        fn burn_only_own_balance_and_supply_decrease() {
+            let a = accounts();
+            let mut l = seeded();
+            caller(a.bob);
+            assert_eq!(l.burn(12), Ok(()));
+            assert_eq!(l.balance_of(a.bob), 28);
+            assert_eq!(l.total_supply(), 88);
+            assert_eq!(l.burn(29), Err(LedgerError::InsufficientBalance));
+            assert_eq!(l.total_supply(), 88);
+        }
+        #[ink::test]
+        fn burn_to_zero_then_mint_keeps_historical_slot() {
+            let a = accounts();
+            let mut l = seeded();
+            caller(a.bob);
+            l.burn(40).unwrap();
+            assert_eq!(l.holder_count(), 2);
+            assert_eq!(l.active_holder_count(), 1);
+            caller(a.alice);
+            l.mint(a.bob, 7).unwrap();
+            assert_eq!(l.holder_count(), 2);
+            assert_eq!(l.active_holder_count(), 2);
+            assert_eq!(l.index_of(a.bob), Some(1));
+        }
+        #[ink::test]
+        fn no_burn_of_zero() {
+            let a = accounts();
+            let mut l = seeded();
+            caller(a.bob);
+            assert_eq!(l.burn(0), Err(LedgerError::InvalidAmount));
+        }
+        #[ink::test]
+        fn unauthorized_freeze_denied() {
+            let a = accounts();
+            let mut l = seeded();
+            caller(a.bob);
+            assert_eq!(l.freeze(), Err(LedgerError::Unauthorized));
+            assert!(!l.is_frozen());
+        }
+        #[ink::test]
+        fn freeze_once_blocks_every_mutation() {
+            let a = accounts();
+            let mut l = seeded();
+            let total = l.total_supply();
+            let hist = l.holder_count();
+            let active = l.active_holder_count();
+            assert_eq!(l.freeze(), Ok(()));
+            assert_eq!(l.freeze(), Err(LedgerError::AlreadyFrozen));
+            assert_eq!(l.mint(a.charlie, 1), Err(LedgerError::Frozen));
+            assert_eq!(l.transfer(a.charlie, 1), Err(LedgerError::Frozen));
+            assert_eq!(l.burn(1), Err(LedgerError::Frozen));
+            caller(a.bob);
+            assert_eq!(l.transfer(a.charlie, 1), Err(LedgerError::Frozen));
+            assert_eq!(l.burn(1), Err(LedgerError::Frozen));
+            assert_eq!(l.total_supply(), total);
+            assert_eq!(l.holder_count(), hist);
+            assert_eq!(l.active_holder_count(), active);
+            assert_eq!(l.holder_at(1), Some((a.bob, 40)));
+        }
+        #[ink::test]
+        fn bounded_page_yields_each_holder_in_index_order() {
+            let a = accounts();
+            let l = seeded();
+            assert_eq!(l.holder_page(0, 64), vec![(a.alice, 60), (a.bob, 40)]);
+            assert_eq!(l.holder_page(1, u32::MAX), vec![(a.bob, 40)]);
+            assert!(l.holder_page(2, 64).is_empty());
+            assert!(l.holder_page(0, 0).is_empty());
+            assert!(l.holder_page(u32::MAX, u32::MAX).is_empty());
+        }
+        #[ink::test]
+        fn supply_matches_independent_holder_scan() {
+            let a = accounts();
+            let mut l = seeded();
+            l.transfer(a.charlie, 13).unwrap();
+            caller(a.bob);
+            l.burn(3).unwrap();
+            let mut sum = 0u128;
+            let mut positive = 0u32;
+            for idx in 0..l.holder_count() {
+                let (_, amount) = l.holder_at(idx).unwrap();
+                sum += amount;
+                if amount > 0 { positive += 1; }
+            }
+            assert_eq!(sum, l.total_supply());
+            assert_eq!(positive, l.active_holder_count());
+            assert_eq!(l.holder_count(), 3);
+        }
+        #[ink::test]
+        fn errors_do_not_emit_events() {
+            let a = accounts();
+            let mut l = ledger();
+            let before = test::recorded_events().count();
+            assert_eq!(l.mint(a.bob, 0), Err(LedgerError::InvalidAmount));
+            assert_eq!(test::recorded_events().count(), before);
+        }
+    }
+}
