@@ -55,10 +55,10 @@ assert.ok(operationCount >= 10, "Expected lifecycle, proof, claims, and readines
 assert.ok(!Object.hasOwn(spec.components.schemas.CreateMigrationRequest.properties, "tenant_id"),
   "Tenant ID must not be client-selectable");
 const errorCodes = spec.components.schemas.ApiError.properties.code.enum;
-for (const code of ["unsupported_asset","source_unverified","migration_paused","insufficient_backing","invalid_proof"]) {
+for (const code of ["unsupported_asset","source_unverified","migration_paused","insufficient_backing","invalid_proof","artifact_expired","artifact_integrity_failure","artifact_too_large","unsupported_media_type","privacy_classification_required","artifact_revision_conflict"]) {
   assert.ok(errorCodes.includes(code), `Missing typed API error code: ${code}`);
 }
-for (const operation of ["createMigration","startVerification","submitApproval","requestActivation","cancelMigration","createDispute"]) {
+for (const operation of ["createMigration","startVerification","submitApproval","requestActivation","cancelMigration","createDispute","uploadArtifact"]) {
   const found = Object.values(spec.paths).some((pathItem) =>
     Object.values(pathItem).some((candidate) => candidate?.operationId === operation && candidate.parameters?.some((p) => p.$ref === "#/components/parameters/IdempotencyKey"))
   );
