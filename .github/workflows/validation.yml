@@ -27,10 +27,25 @@ jobs:
       - run: python -m pip freeze
       - run: python -m unittest discover -s local_model -v
       - run: python -m unittest discover -s test -p test_compatibility.py -v
+      - run: python -m unittest discover -s test -p test_portaldot_probe.py -v
       - run: python -m unittest discover -s test -p test_assurance.py -v
       - run: python -m unittest discover -s test -p test_lifecycle.py -v
       - run: python -m unittest discover -s test -p test_release_policy.py -v
-      - run: python -m unittest discover -s test -p test_portaldot_probe.py -v
+      - run: python -m unittest discover -s test -p test_enumeration.py -v
+      - run: python -m unittest discover -s test -p test_bindings.py -v
+      - run: python -m unittest discover -s test -p test_freeze_evidence.py -v
+      - run: python -m unittest discover -s test -p test_finalized_headers.py -v
+      - run: python -m unittest discover -s test -p test_finality_transport.py -v
+      - run: python -m unittest discover -s test -p test_multi_rpc_consistency.py -v
+      - run: python -m unittest discover -s test -p test_multi_rpc_cli.py -v
+      - run: python -m unittest discover -s test -p test_source_fixture_runner.py -v
+      - run: python -m unittest discover -s test -p test_manifest_v1.py -v
+      - run: python -m unittest discover -s test -p test_verification_reports.py -v
+      - name: Verify committed 1/2/3/257 holder golden fixture bytes
+        run: python tools/manifest/generate_golden.py --check
+      - run: python -m unittest discover -s test -p test_golden_vectors.py -v
+      - run: python tools/manifest/generate_golden.py --check
+      - run: python -m unittest discover -s test -p test_golden_vectors.py -v
       - run: cd local_model && python run_experiment.py
   js-workspace:
     runs-on: ubuntu-latest
@@ -46,15 +61,87 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm -r test
-  rust-toolchain-smoke:
+      - name: Run independent TypeScript golden SHA256 encoder
+        run: node --experimental-strip-types --test tools/manifest/canonical_v1.test.ts
+      - name: TypeScript independent canonical manifest golden proofs
+        run: node --experimental-strip-types --test tools/manifest/canonical_v1.test.ts
+  wasm-contract:
     runs-on: ubuntu-latest
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           toolchain: 1.90.0
           targets: wasm32-unknown-unknown
-          components: rustfmt, clippy
-      - run: rustc --version
-      - run: cargo --version
-      - run: 'echo "Rust toolchain only: NO WASM source contract built or deployed"'
+          components: rustfmt, clippy, rust-src
+      - run: rustc --version && cargo --version
+      - name: Verify committed fixture Cargo.lock
+        run: |
+          test -s contracts/wasm/toolchain-smoke/Cargo.lock
+          cargo metadata --manifest-path contracts/wasm/toolchain-smoke/Cargo.toml --locked --no-deps --format-version 1 > /dev/null
+      - name: ink! off-chain contract tests
+        run: cargo test --manifest-path contracts/wasm/toolchain-smoke/Cargo.toml --locked
+      - name: Install pinned cargo-contract
+        run: cargo install cargo-contract --version 5.0.3 --locked
+      - run: cargo contract --version
+      - name: Build ink! Wasm and ABI bundle
+        run: cargo contract build --release --manifest-path contracts/wasm/toolchain-smoke/Cargo.toml
+      - name: Record artifact fingerprints
+        run: |
+          set -eu
+          test -s contracts/wasm/toolchain-smoke/target/ink/metorah_toolchain_smoke.wasm
+          test -s contracts/wasm/toolchain-smoke/target/ink/metorah_toolchain_smoke.contract
+          sha256sum contracts/wasm/toolchain-smoke/target/ink/metorah_toolchain_smoke.*
+
+      - name: Compile actual source ledger to ink! WASM bundle (NOT chain deployed)
+        run: cargo contract build --release --manifest-path contracts/wasm/source-ledger/Cargo.toml
+      - name: Validate source-ledger WASM and contract bundle artifacts
+        run: |
+          set -eu
+          test -s contracts/wasm/source-ledger/target/ink/metorah_source_ledger.wasm
+          test -s contracts/wasm/source-ledger/target/ink/metorah_source_ledger.contract
+          sha256sum contracts/wasm/source-ledger/target/ink/metorah_source_ledger.*
+  wasm-source-ledger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.90.0
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy, rust-src
+      - run: rustc --version && cargo --version
+      - name: Confirm checked-in source-ledger Cargo.lock
+        run: |
+          test -s contracts/wasm/source-ledger/Cargo.lock
+          cargo metadata --manifest-path contracts/wasm/source-ledger/Cargo.toml --locked --no-deps --format-version 1 > /dev/null
+      - name: ink! source ledger unit tests
+        run: cargo test --manifest-path contracts/wasm/source-ledger/Cargo.toml --locked -- --nocapture
+      - name: Source ledger compile check
+        run: cargo check --manifest-path contracts/wasm/source-ledger/Cargo.toml --locked
+      - name: Execute real ink! offline six-holder fixture and retain evidence
+        run: python tools/fixtures/run_local.py --output local_model/artifacts/source-fixture-local.json
+      - name: Upload source fixture diagnostic report (offline only)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: offline-source-fixture
+          path: local_model/artifacts/source-fixture-local.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+  signed-report-windows:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.7'
+      - run: python -m pip install -r local_model/requirements.lock
+      - name: Verify Ed25519 attestations and Windows safe-history locks
+        run: python -m unittest discover -s test -p test_verification_reports.py -v
+      - name: Verify source SHA256 manifest parity on Windows
+        run: python -m unittest discover -s test -p test_manifest_v1.py -v

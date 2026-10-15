@@ -1,0 +1,114 @@
+{
+  "assurance": "E1_ENCODING_ONLY",
+  "can_activate": false,
+  "can_claim": false,
+  "cases": [
+    {
+      "header_hash": "0x8cbce6e2540f466f2f38fd605d2c9757ac16039ca19ac1a09b02c8713cf2505e",
+      "historical_holder_count": 2,
+      "holders": 1,
+      "manifest_digest": "0x811f69011a8346c026df8eded7697f23f4c3dd3bfba6a1c34ed9c4d71a332e39",
+      "merkle_root": "0x6045087ba0351018ff064f34336da6bd33b0020c288e023b7af9fd9416a3988c",
+      "samples": [
+        {
+          "index": 0,
+          "leaf_hash": "0x6045087ba0351018ff064f34336da6bd33b0020c288e023b7af9fd9416a3988c",
+          "proof": []
+        }
+      ],
+      "total_units": "11"
+    },
+    {
+      "header_hash": "0x39c8118a4a072632f2c7c51fceae5d6a1be0609a816d9bf96108a9660a8c9e95",
+      "historical_holder_count": 3,
+      "holders": 2,
+      "manifest_digest": "0xb5b2667a831fd38efabb70ce900b375df4438744a80c89cf7d17132883a6371d",
+      "merkle_root": "0x9921a12392018914ca5f46f8bf0783cfa99a733b08ce6805ba3cf0c8349b43e5",
+      "samples": [
+        {
+          "index": 0,
+          "leaf_hash": "0x1df90df03ebac540f97a41701cad5c4b03c592c141161918e5f37dbb0f7ee1da",
+          "proof": [
+            "0x5afcd211415492eb73f2d9982bf85cb06d704bb117e5fb20c90c2d541b260942"
+          ]
+        },
+        {
+          "index": 1,
+          "leaf_hash": "0x5afcd211415492eb73f2d9982bf85cb06d704bb117e5fb20c90c2d541b260942",
+          "proof": [
+            "0x1df90df03ebac540f97a41701cad5c4b03c592c141161918e5f37dbb0f7ee1da"
+          ]
+        }
+      ],
+      "total_units": "35"
+    },
+    {
+      "header_hash": "0x1495c975e592002f4d8a3148032074071c6c18faf06bb55f6b87499859e6de45",
+      "historical_holder_count": 4,
+      "holders": 3,
+      "manifest_digest": "0x99033e12ada957cffb521cf23f3e568eb2a5e6a6ec741bfb4769bf6a9b1d57a8",
+      "merkle_root": "0x15fc7eda49f59fae49474ac00e43b0b256403db0669a8fd616b49a486c7f91d8",
+      "samples": [
+        {
+          "index": 0,
+          "leaf_hash": "0xdc14e916adc5387729a7ee2f0b69677ff11116367bd9c01d1fb5d3e9d4fc1fe3",
+          "proof": [
+            "0x7dad636280e3c3e8d21a2398b61ed3e9ecd38e897b3a73bf1f292ff1c66bde86",
+            "0x759642a09f5eb121bf6cf910c2224ba37611559494c2b2557b2925eea801e700"
+          ]
+        },
+        {
+          "index": 2,
+          "leaf_hash": "0xe2c918394cdbd29d03adafa8b82295d5f768fbcc0514ad83c2a506fdcc1beaf1",
+          "proof": [
+            "0xe2c918394cdbd29d03adafa8b82295d5f768fbcc0514ad83c2a506fdcc1beaf1",
+            "0x8031ef3c32c438009a96f35ac154bbb2460630cf1cc05cb08c63554018812308"
+          ]
+        }
+      ],
+      "total_units": "74"
+    },
+    {
+      "header_hash": "0xe70c3fb5a228b922cd0870eb3faa43cf5458ca55e76c09d65485eb5e9f693939",
+      "historical_holder_count": 290,
+      "holders": 257,
+      "manifest_digest": "0x42d131ab1f6a35b13a998e97194e7ea0718cf3a06bd78a7b6bc34698536ec632",
+      "merkle_root": "0x43bf015333a2537273fd72f750179f27cf6d8869f8f7a488e240f5419e526061",
+      "samples": [
+        {
+          "index": 0,
+          "leaf_hash": "0x74bf5db0794e8ecddd251c9f5e036ad50c99da444fcdf293c1918abc6f3fbf3e",
+          "proof": [
+            "0x57c094afea83c49c7eec7721df6e9b0af0f92a482aa68fccdbc2607eabc6e078",
+            "0xb400a52119d098909be381214cb110b4205fda28e4a0685471bba596110d45f9",
+            "0xda05095aaaadf90af0cd755694351ab4a2ac1c9d6d6a588d9d512401da529b08",
+            "0x487a87ff4b5d01198195e3c562fa13c93f1b784d4f0ae817731ecdedc650d63f",
+            "0x82dfbceae1346756d9f01526be4c718cc5db4538747ac5dd6fed2985de2614d4",
+            "0x5bb1dc830a60b83c182dfe5bd222c96ef414b14a6215f9b854fdd85238178dcb",
+            "0xb0af1fbb409f17df96081c7986615fe36f068f03ce039063c4d99159a6348f00",
+            "0x3701bb6e61566041b8d805e1df80568dface83ceefa410bb846428093190647b",
+            "0xdbdc1820787d555b395c441506274833a515ac308c73d2272087db801f5d4aeb"
+          ]
+        },
+        {
+          "index": 256,
+          "leaf_hash": "0x746f1162ebc98d318e60077aff20be72be725d705c0f80033fb5e630c4ea90cc",
+          "proof": [
+            "0x746f1162ebc98d318e60077aff20be72be725d705c0f80033fb5e630c4ea90cc",
+            "0xe2f3a28f45566fb9f0de39e97eaa68bd7e41657202f784e798f2da335b4a87a8",
+            "0x64517afe797415867f03f7cc0eaee990afa92ac4d69fa01d0409274857a1d7f9",
+            "0x61f72449eabebeeaa88f11c59bb2c24861ea0791ad45eeb2f075c7d787512ac2",
+            "0x65c6dce7ce317b86bcf7ac92c995a43ed640e1234fad5bafbc938b725c90af79",
+            "0xd470200d3bd32cd6c776bed4ac2fb06af114653b3372a100e18c67659fdc8cf7",
+            "0x341c9ef741c36515a8b73b99c6468900284f589a9c8616be31e2b81b7b4b136b",
+            "0x16f5c763b30ae52aeb497e788edeadd4df411b801e84c5deda20493cf58650b6",
+            "0x90798143c659921990901b60482dc47039efe7c58e124a907910f27086bcc635"
+          ]
+        }
+      ],
+      "total_units": "6022795"
+    }
+  ],
+  "schema_version": "metorah-golden-v1",
+  "source_chain_authenticated": false
+}
