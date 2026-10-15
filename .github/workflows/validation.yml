@@ -38,6 +38,8 @@ jobs:
       - run: python -m unittest discover -s test -p test_finality_transport.py -v
       - run: python -m unittest discover -s test -p test_multi_rpc_consistency.py -v
       - run: python -m unittest discover -s test -p test_multi_rpc_cli.py -v
+      - run: python -m unittest discover -s test -p test_storage_trie_collector.py -v
+      - run: python -m unittest discover -s test -p test_entitlement_reconciliation.py -v
       - run: python -m unittest discover -s test -p test_source_fixture_runner.py -v
       - run: python -m unittest discover -s test -p test_manifest_v1.py -v
       - run: python -m unittest discover -s test -p test_verification_reports.py -v
@@ -145,3 +147,25 @@ jobs:
         run: python -m unittest discover -s test -p test_verification_reports.py -v
       - name: Verify source SHA256 manifest parity on Windows
         run: python -m unittest discover -s test -p test_manifest_v1.py -v
+
+  trie-verifier:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.90.0
+          components: rustfmt, clippy
+      - name: Run real Parity sp-trie V0/V1 proof verification and mutation tests
+        run: cargo test --manifest-path tools/trie-verifier/Cargo.toml --all-targets --verbose
+      - name: Compile isolated offline verifier CLI
+        run: cargo build --release --manifest-path tools/trie-verifier/Cargo.toml
+      - name: Export independently reviewable resolved dependency graph
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trie-verifier-cargo-lockfile
+          path: tools/trie-verifier/Cargo.lock
+          if-no-files-found: error
+          retention-days: 14
