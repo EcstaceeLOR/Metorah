@@ -592,6 +592,206 @@
         },
         "parameters": []
       }
+    },
+    "/migrations/{migrationId}/artifacts": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/MigrationId"
+        }
+      ],
+      "post": {
+        "operationId": "uploadArtifact",
+        "summary": "Upload a content-addressed evidence artifact",
+        "description": "Tenant identity is derived from the verified bearer token. The server computes SHA-256, applies classification-specific ACL and retention rules, and stores no client-selected object key.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/IdempotencyKey"
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "file",
+                  "artifact_kind",
+                  "classification",
+                  "revision"
+                ],
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Artifact bytes; never include secrets in manifests or public evidence."
+                  },
+                  "artifact_kind": {
+                    "$ref": "#/components/schemas/ArtifactKind"
+                  },
+                  "classification": {
+                    "$ref": "#/components/schemas/ArtifactClassification"
+                  },
+                  "revision": {
+                    "type": "integer",
+                    "minimum": 1
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Artifact stored and linked to the migration",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactUploadResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "413": {
+            "$ref": "#/components/responses/PayloadTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "422": {
+            "$ref": "#/components/responses/Unprocessable"
+          },
+          "500": {
+            "$ref": "#/components/responses/ServerError"
+          }
+        }
+      }
+    },
+    "/migrations/{migrationId}/artifacts/{contentSha256}": {
+      "parameters": [
+        {
+          "$ref": "#/components/parameters/MigrationId"
+        },
+        {
+          "$ref": "#/components/parameters/ContentSha256"
+        }
+      ],
+      "get": {
+        "operationId": "downloadArtifact",
+        "summary": "Download and independently verify an evidence artifact",
+        "description": "The server enforces tenant and classification ACLs, fetches the recorded object version, verifies SHA-256 and byte length before returning bytes, and uses attachment disposition to avoid inline rendering.",
+        "parameters": [
+          {
+            "$ref": "#/components/parameters/ArtifactKindQuery"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Verified artifact bytes; compute SHA-256 locally and compare with X-Content-SHA256.",
+            "headers": {
+              "X-Content-SHA256": {
+                "required": true,
+                "description": "SHA-256 digest verified against the returned bytes.",
+                "schema": {
+                  "type": "string",
+                  "pattern": "^[0-9a-f]{64}$"
+                }
+              },
+              "X-Artifact-Classification": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactClassification"
+                }
+              },
+              "X-Artifact-Kind": {
+                "required": true,
+                "schema": {
+                  "$ref": "#/components/schemas/ArtifactKind"
+                }
+              },
+              "X-Artifact-Revision": {
+                "required": true,
+                "schema": {
+                  "type": "integer",
+                  "minimum": 1
+                }
+              },
+              "X-Artifact-Media-Type": {
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "application/json",
+                    "application/cbor",
+                    "application/pdf",
+                    "application/octet-stream",
+                    "application/zip",
+                    "text/plain",
+                    "text/csv"
+                  ]
+                }
+              },
+              "Content-Disposition": {
+                "required": true,
+                "description": "Always attachment; server-generated filename contains only the content digest.",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "Cache-Control": {
+                "required": true,
+                "schema": {
+                  "type": "string",
+                  "enum": [
+                    "no-store"
+                  ]
+                }
+              }
+            },
+            "content": {
+              "application/octet-stream": {
+                "schema": {
+                  "type": "string",
+                  "format": "binary"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "410": {
+            "$ref": "#/components/responses/Gone"
+          },
+          "502": {
+            "$ref": "#/components/responses/ArtifactIntegrityFailure"
+          }
+        }
+      }
     }
   },
   "components": {
@@ -659,6 +859,24 @@
           "minimum": 1,
           "maximum": 100,
           "default": 25
+        }
+      },
+      "ContentSha256": {
+        "name": "contentSha256",
+        "in": "path",
+        "required": true,
+        "description": "Lowercase SHA-256 digest of the content-addressed artifact.",
+        "schema": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
+        }
+      },
+      "ArtifactKindQuery": {
+        "name": "kind",
+        "in": "query",
+        "required": true,
+        "schema": {
+          "$ref": "#/components/schemas/ArtifactKind"
         }
       }
     },
@@ -732,6 +950,46 @@
             }
           }
         }
+      },
+      "Gone": {
+        "description": "Artifact expired or no longer available",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "PayloadTooLarge": {
+        "description": "Artifact exceeds the classification size limit",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "UnsupportedMediaType": {
+        "description": "Artifact media type is not allowed",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "ArtifactIntegrityFailure": {
+        "description": "Stored bytes failed content-hash, size, or object-version verification",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
       }
     },
     "schemas": {
@@ -773,7 +1031,13 @@
               "approval_required",
               "evidence_expired",
               "rate_limited",
-              "internal_error"
+              "internal_error",
+              "artifact_expired",
+              "artifact_integrity_failure",
+              "artifact_too_large",
+              "unsupported_media_type",
+              "privacy_classification_required",
+              "artifact_revision_conflict"
             ]
           },
           "message": {
@@ -1234,6 +1498,87 @@
           },
           "verified": {
             "type": "boolean"
+          }
+        }
+      },
+      "ArtifactKind": {
+        "type": "string",
+        "enum": [
+          "manifest",
+          "proof_bundle",
+          "signed_report",
+          "account_mapping",
+          "verification_trace"
+        ]
+      },
+      "ArtifactClassification": {
+        "type": "string",
+        "enum": [
+          "public_evidence",
+          "confidential",
+          "private_mapping"
+        ]
+      },
+      "ArtifactUploadResponse": {
+        "type": "object",
+        "required": [
+          "artifact_id",
+          "object_id",
+          "content_sha256",
+          "content_size",
+          "media_type",
+          "classification",
+          "artifact_kind",
+          "revision",
+          "retention_until",
+          "object_version"
+        ],
+        "properties": {
+          "artifact_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "object_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "content_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "content_size": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "media_type": {
+            "type": "string",
+            "enum": [
+              "application/json",
+              "application/cbor",
+              "application/pdf",
+              "application/octet-stream",
+              "application/zip",
+              "text/plain",
+              "text/csv"
+            ]
+          },
+          "classification": {
+            "$ref": "#/components/schemas/ArtifactClassification"
+          },
+          "artifact_kind": {
+            "$ref": "#/components/schemas/ArtifactKind"
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "retention_until": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "object_version": {
+            "type": "string",
+            "description": "Opaque version identifier; object storage keys are never exposed."
           }
         }
       }
