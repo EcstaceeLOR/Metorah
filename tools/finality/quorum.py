@@ -88,6 +88,8 @@ def _metadata(observation: dict[str, Any], metadata_hex: str) -> dict[str, Any]:
         "snapshot_block_number": facts["snapshot_block_number"],
         "snapshot_state_root": facts["snapshot_state_root"],
         "snapshot_extrinsics_root": facts["snapshot_extrinsics_root"],
+        "snapshot_parent_hash": facts["snapshot_parent_hash"],
+        "snapshot_digest_logs": facts["snapshot_digest_logs"],
         "runtime_at_snapshot": facts["runtime_at_snapshot"],
     }
 
@@ -198,6 +200,29 @@ class MultiRPC:
             raise QuorumError("INSUFFICIENT_INDEPENDENT_RPC_QUORUM")
         if max(head_heights) - min(head_heights) > self.max_head_delta:
             raise QuorumError("STALLED_OR_STALE_FINALIZED_HEAD")
+        # Different heights can be normal lag. To distinguish genuine lag
+        # from a fork hidden at the same overlapping finalized height, query
+        # every respondent for the hash at the common minimum height.
+        # A majority must NEVER overrule a conflicting responder.
+        common_height = min(head_heights)
+        common_hash: str | None = None
+        for provider_id, (provider, _) in list(healthy.items()):
+            try:
+                value = _hash(
+                    _read(provider.reader, "chain_getBlockHash", [common_height]),
+                    "INVALID_COMMON_FINALIZED_HASH",
+                )
+            except FinalityObservationError as exc:
+                if exc.code in TRANSIENT:
+                    failures.append(provider_id)
+                    del healthy[provider_id]
+                    continue
+                raise QuorumError("RPC_SEMANTIC_FAILURE_" + exc.code) from exc
+            if common_hash is not None and value != common_hash:
+                raise QuorumError("SPLIT_BRAIN_FINALIZED_ANCESTRY")
+            common_hash = value
+        if len(healthy) < self.min_quorum:
+            raise QuorumError("INSUFFICIENT_INDEPENDENT_RPC_QUORUM")
         for provider_id, (_, obs) in healthy.items():
             self._head_high_water[provider_id] = obs["observed"]["reported_finalized_number"]
         if self._baseline is None:
