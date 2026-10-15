@@ -292,7 +292,7 @@ class SnapshotWorker:
         connection, cursor = self._open()
         try:
             cursor.execute(
-                "SELECT p.id, p.run_id, p.partition_index, p.start_index, p.end_index, p.status, "
+                "SELECT p.id, p.run_id, p.partition_index, p.start_index, p.end_index, p.status, p.worker_id, "
                 "p.attempt_count, p.max_attempts, r.migration_id, r.source_chain_id, "
                 "r.pinned_block_number, r.pinned_block_hash, r.state_root, r.genesis_hash, "
                 "r.trie_state_version, r.finality_evidence_digest "
@@ -305,7 +305,13 @@ class SnapshotWorker:
             if row is None:
                 self._close(connection, cursor)
                 return None
-            attempt, maximum = int(row[6]), int(row[7])
+            attempt, maximum = int(row[7]), int(row[8])
+            if row[5] == "leased":
+                cursor.execute(
+                    "INSERT INTO snapshot_failures (run_id, partition_index, worker_id, failure_code, retryable) "
+                    "VALUES (%s,%s,%s,'WORKER_LEASE_EXPIRED',true)",
+                    (row[1], row[2], row[6]),
+                )
             if attempt >= maximum:
                 code = "PARTITION_LEASE_EXPIRED_RETRY_LIMIT" if row[5] == "leased" else "PARTITION_RETRY_LIMIT"
                 cursor.execute(
@@ -336,10 +342,10 @@ class SnapshotWorker:
                 "partition_id": str(row[0]), "run_id": str(row[1]), "partition_index": int(row[2]),
                 "start_index": int(row[3]), "end_index": int(row[4]), "attempt_count": next_attempt,
                 "worker_id": worker_id, "lease_until": lease_until.isoformat(),
-                "migration_id": str(row[8]), "checkpoint": VerifiedCheckpoint(
-                    source_chain_id=str(row[9]), block_number=int(row[10]), block_hash=bytes(row[11]),
-                    state_root=bytes(row[12]), genesis_hash=bytes(row[13]), trie_state_version=int(row[14]),
-                    finality_evidence_digest=bytes(row[15]),
+                "migration_id": str(row[9]), "checkpoint": VerifiedCheckpoint(
+                    source_chain_id=str(row[10]), block_number=int(row[11]), block_hash=bytes(row[12]),
+                    state_root=bytes(row[13]), genesis_hash=bytes(row[14]), trie_state_version=int(row[15]),
+                    finality_evidence_digest=bytes(row[16]),
                 ),
             }
             self._close(connection, cursor)
