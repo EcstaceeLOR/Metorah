@@ -111,6 +111,26 @@ $$;
 CREATE TRIGGER artifact_objects_insert_guard BEFORE INSERT ON artifact_objects
 FOR EACH ROW EXECUTE FUNCTION guard_artifact_object_insert();
 
+CREATE FUNCTION guard_migration_artifact_insert() RETURNS trigger
+LANGUAGE plpgsql AS $
+DECLARE object_classification text;
+BEGIN
+    SELECT classification INTO object_classification
+    FROM artifact_objects WHERE id=NEW.artifact_object_id AND tenant_id=NEW.tenant_id;
+    IF NOT FOUND THEN
+        RAISE EXCEPTION 'artifact object must exist in the same tenant' USING ERRCODE = '23503';
+    END IF;
+    IF (NEW.artifact_kind = 'account_mapping' AND object_classification <> 'private_mapping')
+       OR (object_classification = 'private_mapping' AND NEW.artifact_kind <> 'account_mapping') THEN
+        RAISE EXCEPTION 'account mapping artifacts must use the private_mapping classification'
+            USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END;
+$;
+CREATE TRIGGER migration_artifacts_classification_guard BEFORE INSERT ON migration_artifacts
+FOR EACH ROW EXECUTE FUNCTION guard_migration_artifact_insert();
+
 CREATE FUNCTION initialize_artifact_lifecycle() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
@@ -138,8 +158,11 @@ BEGIN
         IF NEW.status IN ('expired','deleted') AND OLD.legal_hold THEN
             RAISE EXCEPTION 'artifact under legal hold cannot expire or be deleted' USING ERRCODE = '23514';
         END IF;
-        IF NEW.status='expired' AND (SELECT retention_until FROM artifact_objects WHERE id=OLD.artifact_object_id) > now() THEN
+        IF NEW.status IN ('expired','deleted') AND (SELECT retention_until FROM artifact_objects WHERE id=OLD.artifact_object_id) > now() THEN
             RAISE EXCEPTION 'artifact retention period has not elapsed' USING ERRCODE = '23514';
+        END IF;
+        IF NEW.legal_hold IS DISTINCT FROM OLD.legal_hold AND OLD.status <> 'available' THEN
+            RAISE EXCEPTION 'legal hold can only change while an artifact is available' USING ERRCODE = '23514';
         END IF;
         IF NEW.status='deleted' THEN NEW.deleted_at := COALESCE(NEW.deleted_at, now()); END IF;
         required_action := CASE NEW.status WHEN 'expired' THEN 'expired' WHEN 'deleted' THEN 'deleted' ELSE NULL END;
