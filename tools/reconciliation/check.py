@@ -60,6 +60,8 @@ def main(argv=None) -> int:
     try:
         if args.output.resolve() in {args.snapshot.resolve(), args.manifest.resolve()}:
             raise ReconciliationError("OUTPUT_MUST_NOT_OVERWRITE_INPUT")
+        if args.output.exists():
+            raise ReconciliationError("OUTPUT_ALREADY_EXISTS")
         snapshot, manifest = _load(args.snapshot), _load(args.manifest)
         report = audit(snapshot, manifest)
         args.output.parent.mkdir(parents=True, exist_ok=True)

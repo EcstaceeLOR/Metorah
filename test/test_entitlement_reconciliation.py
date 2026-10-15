@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import copy
 import json
+from pathlib import Path
+import tempfile
 import unittest
 
 from tools.manifest import canonical
@@ -333,6 +335,68 @@ class ReconciliationTests(unittest.TestCase):
         s = copy.deepcopy(self.source)
         s["header"]["asset_id"] = "0x" + "00" * 32
         self.fails("INVALID_CANONICAL_HEADER", source=s)
+
+class ReconciliationCommandTests(unittest.TestCase):
+    def test_valid_fixture_creates_explicitly_untrusted_diagnostic(self):
+        from tools.reconciliation.check import main
+        source, operator = fixture()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            snapshot = path / "source.json"
+            manifest = path / "candidate.json"
+            result = path / "result.json"
+            snapshot.write_text(json.dumps(source), encoding="utf-8")
+            manifest.write_text(json.dumps(operator), encoding="utf-8")
+            self.assertEqual(main(["--snapshot", str(snapshot), "--manifest", str(manifest),
+                                   "--output", str(result)]), 0)
+            report = json.loads(result.read_text(encoding="utf-8"))
+            self.assertFalse(report["can_activate"])
+            self.assertFalse(report["can_claim"])
+            self.assertFalse(report["registry_storage_proofs_verified"])
+
+    def test_failed_cli_never_creates_a_success_artifact(self):
+        from tools.reconciliation.check import main
+        source, operator = fixture()
+        operator["can_claim"] = True
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            snapshot = path / "source.json"
+            manifest = path / "candidate.json"
+            result = path / "must-not-exist.json"
+            snapshot.write_text(json.dumps(source), encoding="utf-8")
+            manifest.write_text(json.dumps(operator), encoding="utf-8")
+            self.assertEqual(main(["--snapshot", str(snapshot), "--manifest", str(manifest),
+                                   "--output", str(result)]), 2)
+            self.assertFalse(result.exists())
+
+    def test_duplicate_json_keys_are_rejected_before_audit(self):
+        from tools.reconciliation.check import main
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            snapshot = path / "duplicate.json"
+            manifest = path / "anything.json"
+            result = path / "must-not-exist.json"
+            snapshot.write_text('{"verified":false,"verified":true}', encoding="utf-8")
+            manifest.write_text("{}", encoding="utf-8")
+            self.assertEqual(main(["--snapshot", str(snapshot), "--manifest", str(manifest),
+                                   "--output", str(result)]), 2)
+            self.assertFalse(result.exists())
+
+    def test_existing_result_never_silently_overwritten(self):
+        from tools.reconciliation.check import main
+        source, operator = fixture()
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            snapshot = path / "source.json"
+            manifest = path / "candidate.json"
+            result = path / "existing.json"
+            snapshot.write_text(json.dumps(source), encoding="utf-8")
+            manifest.write_text(json.dumps(operator), encoding="utf-8")
+            result.write_text("PREVIOUS_RESULT", encoding="utf-8")
+            self.assertEqual(main(["--snapshot", str(snapshot), "--manifest", str(manifest),
+                                   "--output", str(result)]), 2)
+            self.assertEqual(result.read_text(encoding="utf-8"), "PREVIOUS_RESULT")
+
 
 if __name__ == "__main__":
     unittest.main()
