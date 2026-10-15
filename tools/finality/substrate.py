@@ -23,6 +23,7 @@ READ_ONLY_METHODS = frozenset({
     "chain_getFinalizedHead",
     "chain_getHeader",
     "state_getRuntimeVersion",
+    "state_getMetadata",
     "state_getStorage",
 })
 

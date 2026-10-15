@@ -19,13 +19,14 @@ from typing import Any
 
 from tools.finality.substrate import (
     FinalityObservationError, HEX_BYTES, JsonRpcReader, PinnedStateReader,
-    _hash, observe,
+    _hash, _read, observe,
 )
 
 MAX_PROVIDERS = 9
 MAX_KEYS = 4096
 MAX_BATCH = 64
 MAX_VALUE_BYTES = 1_048_576
+MAX_METADATA_BYTES = 1_048_576
 IDENTIFIER = re.compile(r"[a-z][a-z0-9_-]{1,47}\Z")
 TRANSIENT = frozenset({"RPC_READ_FAILED", "RPC_UNAVAILABLE", "RPC_HTTP_FAILURE", "RPC_ERROR_RESPONSE"})
 STATUS = "MULTI_RPC_STORAGE_CONSISTENT_UNAUTHENTICATED"
@@ -69,13 +70,19 @@ def _storage_value(value: Any) -> str | None:
     return value
 
 
-def _metadata(observation: dict[str, Any]) -> dict[str, Any]:
+def _metadata(observation: dict[str, Any], metadata_hex: str) -> dict[str, Any]:
     if (observation.get("can_claim") is not False
             or observation.get("can_activate") is not False
             or observation.get("consensus_finality_cryptographically_verified") is not False):
         raise QuorumError("UNEXPECTED_CHAIN_AUTHENTICATION_CLAIM")
+    if (type(metadata_hex) is not str or len(metadata_hex) <= 2
+            or len(metadata_hex) > 2 + MAX_METADATA_BYTES * 2
+            or HEX_BYTES.fullmatch(metadata_hex) is None):
+        raise QuorumError("INVALID_RUNTIME_METADATA_BYTES")
     facts = observation["observed"]
     return {
+        "runtime_metadata_sha256": sha256(bytes.fromhex(metadata_hex[2:])).hexdigest(),
+        "runtime_metadata_size": (len(metadata_hex) - 2) // 2,
         "reported_genesis_hash": facts["reported_genesis_hash"],
         "snapshot_block_hash": facts["snapshot_block_hash"],
         "snapshot_block_number": facts["snapshot_block_number"],
@@ -161,12 +168,15 @@ class MultiRPC:
                     provider.reader, expected_genesis_hash=self.genesis,
                     pinned_block_hash=self.block, max_finalized_lag=self.max_finalized_lag,
                 )
+                # Check actual runtime metadata at the SAME pinned checkpoint,
+                # not only a self-reported specVersion or moving-head lookup.
+                metadata_hex = _read(provider.reader, "state_getMetadata", [self.block])
             except FinalityObservationError as exc:
                 if exc.code in TRANSIENT:
                     failures.append(provider.provider_id)
                     continue
                 raise QuorumError("RPC_SEMANTIC_FAILURE_" + exc.code) from exc
-            metadata = _metadata(observation)
+            metadata = _metadata(observation, metadata_hex)
             if first_meta is None:
                 first_meta = metadata
             elif metadata != first_meta:
