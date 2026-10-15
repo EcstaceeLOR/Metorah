@@ -1,0 +1,6 @@
+# Deterministic versions for the legacy OFFLINE model only.
+# Update through a reviewed PR with CI evidence and dependency review.
+cryptography==46.0.4
+websockets==16.0
+cffi==2.0.0
+pycparser==3.0

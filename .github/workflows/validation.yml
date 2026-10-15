@@ -3,6 +3,8 @@ on:
   pull_request:
   push:
     branches: [main]
+permissions:
+  contents: read
 jobs:
   solidity:
     runs-on: ubuntu-latest
@@ -10,7 +12,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: foundry-rs/foundry-toolchain@v1
         with:
-          version: stable
+          version: v1.3.6
       - run: forge --version
       - run: forge build
       - run: forge test -vvv
@@ -20,10 +22,37 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.13'
-      - run: python -m pip install -r local_model/requirements.txt
+          python-version: '3.13.7'
+      - run: python -m pip install -r local_model/requirements.lock
+      - run: python -m pip freeze
       - run: python -m unittest discover -s local_model -v
       - run: python -m unittest discover -s test -p test_compatibility.py -v
       - run: python -m unittest discover -s test -p test_assurance.py -v
       - run: python -m unittest discover -s test -p test_lifecycle.py -v
       - run: cd local_model && python run_experiment.py
+  js-workspace:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24.13.0'
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.19.0
+      - run: pnpm --version
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm check
+      - run: pnpm -r test
+  rust-toolchain-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.90.0
+          targets: wasm32-unknown-unknown
+          components: rustfmt, clippy
+      - run: rustc --version
+      - run: cargo --version
+      - run: 'echo "Rust toolchain only: NO WASM source contract built or deployed"'
