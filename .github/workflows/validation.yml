@@ -88,13 +88,10 @@ jobs:
           targets: wasm32-unknown-unknown
           components: rustfmt, clippy, rust-src
       - run: rustc --version && cargo --version
-      - name: Generate source-ledger dependency lock
+      - name: Confirm checked-in source-ledger Cargo.lock
         run: |
-          cargo generate-lockfile --manifest-path contracts/wasm/source-ledger/Cargo.toml
-          echo "METORAH_SOURCE_LOCK_BEGIN"
-          base64 -w0 contracts/wasm/source-ledger/Cargo.lock
-          echo
-          echo "METORAH_SOURCE_LOCK_END"
+          test -s contracts/wasm/source-ledger/Cargo.lock
+          cargo metadata --manifest-path contracts/wasm/source-ledger/Cargo.toml --locked --no-deps --format-version 1 > /dev/null
       - name: ink! source ledger unit tests
         run: cargo test --manifest-path contracts/wasm/source-ledger/Cargo.toml --locked -- --nocapture
       - name: Source ledger compile check
