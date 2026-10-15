@@ -52,6 +52,7 @@ mod metorah_source_ledger {
     pub struct MetorahSourceLedger {
         owner: AccountId,
         frozen: bool,
+        freeze_block: Option<BlockNumber>,
         asset_id: [u8; 32],
         decimals: u8,
         max_supply: Balance,
@@ -95,9 +96,17 @@ mod metorah_source_ledger {
     pub struct SourceFrozen {
         #[ink(topic)]
         by: AccountId,
+        #[ink(topic)]
+        source_contract: AccountId,
+        source_block: BlockNumber,
+        asset_id: [u8; 32],
+        migration_id: [u8; 32],
+        destination_chain_id: u64,
+        destination_contract: [u8; 20],
         total_supply: Balance,
         holder_count: u32,
         active_holder_count: u32,
+        unbound_active_holders: u32,
     }
 
     #[ink(event)]
@@ -134,6 +143,7 @@ mod metorah_source_ledger {
             Self {
                 owner: Self::env().caller(),
                 frozen: false,
+                freeze_block: None,
                 asset_id,
                 decimals,
                 max_supply,
@@ -179,6 +189,19 @@ mod metorah_source_ledger {
         #[ink(message)]
         pub fn is_frozen(&self) -> bool {
             self.frozen
+        }
+
+        /// Source-RUNTIME-observed block, immutable after successful freeze.
+        /// This is not a finalized block attestation or storage proof.
+        #[ink(message)]
+        pub fn freeze_marker(&self) -> Option<(BlockNumber, Balance, u32, u32, u32)> {
+            self.freeze_block.map(|block| (
+                block,
+                self.total_supply,
+                self.holder_count,
+                self.active_holder_count,
+                self.unbound_active_holders,
+            ))
         }
 
         #[ink(message)]
@@ -530,12 +553,21 @@ mod metorah_source_ledger {
             if self.unbound_active_holders != 0 {
                 return Err(LedgerError::UnboundActiveHolders);
             }
+            let observed_block = self.env().block_number();
             self.frozen = true;
+            self.freeze_block = Some(observed_block);
             self.env().emit_event(SourceFrozen {
                 by: self.env().caller(),
+                source_contract: self.env().account_id(),
+                source_block: observed_block,
+                asset_id: self.asset_id,
+                migration_id: self.migration_id,
+                destination_chain_id: self.destination_chain_id,
+                destination_contract: self.destination_contract,
                 total_supply: self.total_supply,
                 holder_count: self.holder_count,
                 active_holder_count: self.active_holder_count,
+                unbound_active_holders: self.unbound_active_holders,
             });
             Ok(())
         }
@@ -1150,6 +1182,219 @@ mod metorah_source_ledger {
             l.register_beneficiary([8; 20], 2).unwrap();
             assert_eq!(l.binding_of(a.alice).unwrap().beneficiary, [8; 20]);
             assert_eq!(l.binding_of(a.bob).unwrap().beneficiary, [2; 20]);
+        }
+
+        #[ink::test]
+        fn freeze_marker_is_absent_before_cutover_and_unchanged_after() {
+            let a = accounts();
+            let mut l = seeded();
+            assert_eq!(l.freeze_marker(), None);
+            test::advance_block::<ink::env::DefaultEnvironment>();
+            let freeze_height = ink::env::block_number::<ink::env::DefaultEnvironment>();
+            let prior_events = test::recorded_events().count();
+            assert_eq!(l.freeze(), Ok(()));
+            assert_eq!(test::recorded_events().count(), prior_events + 1);
+            assert_eq!(l.freeze_marker(), Some((freeze_height, 100, 2, 2, 0)));
+            test::advance_block::<ink::env::DefaultEnvironment>();
+            assert_eq!(l.freeze(), Err(LedgerError::AlreadyFrozen));
+            assert_eq!(l.freeze_marker(), Some((freeze_height, 100, 2, 2, 0)));
+            caller(a.alice);
+            assert_eq!(l.mint(a.charlie, 1), Err(LedgerError::Frozen));
+        }
+
+        #[ink::test]
+        fn rejected_early_cutover_leaves_no_marker_or_event() {
+            let a = accounts();
+            let mut l = ledger();
+            l.mint(a.bob, 10).unwrap();
+            let original_events = test::recorded_events().count();
+            assert_eq!(l.freeze(), Err(LedgerError::UnboundActiveHolders));
+            assert!(!l.is_frozen());
+            assert_eq!(l.freeze_marker(), None);
+            assert_eq!(test::recorded_events().count(), original_events);
+            caller(a.bob);
+            assert_eq!(l.register_beneficiary([8; 20], 1), Ok(1));
+            caller(a.alice);
+            assert_eq!(l.freeze(), Ok(()));
+            assert!(l.freeze_marker().is_some());
+        }
+
+        #[ink::test]
+        fn every_write_path_is_disabled_after_freeze_even_as_issuer_or_holder() {
+            let a = accounts();
+            let mut l = seeded();
+            assert_eq!(l.freeze(), Ok(()));
+            let marker = l.freeze_marker();
+            let events = test::recorded_events().count();
+            assert_eq!(l.mint(a.charlie, 3), Err(LedgerError::Frozen));
+            assert_eq!(l.transfer(a.charlie, 1), Err(LedgerError::Frozen));
+            assert_eq!(l.burn(1), Err(LedgerError::Frozen));
+            assert_eq!(l.register_beneficiary([4; 20], 2), Err(LedgerError::Frozen));
+            caller(a.bob);
+            assert_eq!(l.transfer(a.alice, 1), Err(LedgerError::Frozen));
+            assert_eq!(l.burn(1), Err(LedgerError::Frozen));
+            assert_eq!(l.register_beneficiary([5; 20], 2), Err(LedgerError::Frozen));
+            assert_eq!(l.freeze(), Err(LedgerError::Unauthorized));
+            assert_eq!(test::recorded_events().count(), events);
+            assert_eq!(l.total_supply(), 100);
+            assert_eq!(l.active_holder_count(), 2);
+            assert_eq!(l.holder_count(), 2);
+            assert_eq!(l.unbound_active_holders(), 0);
+            assert_eq!(l.freeze_marker(), marker);
+            assert_eq!(l.binding_of(a.bob).unwrap().beneficiary, [2; 20]);
+        }
+
+        #[ink::test]
+        fn freeze_marker_keeps_cutoff_after_zero_balance_tombstone() {
+            let a = accounts();
+            let mut l = seeded();
+            caller(a.bob);
+            l.burn(40).unwrap();
+            caller(a.alice);
+            assert_eq!(l.freeze(), Ok(()));
+            let marker = l.freeze_marker().unwrap();
+            assert_eq!(marker.1, 60);
+            assert_eq!(marker.2, 2);
+            assert_eq!(marker.3, 1);
+            assert_eq!(marker.4, 0);
+            assert_eq!(l.holder_at(1), Some((a.bob, 0)));
+        }
+
+        /// Deterministic end-to-end *ink! off-chain* fixture, never a live RPC
+        /// or real finalized block receipt. Real runtime deployment is #18/#24.
+        #[ink::test]
+        fn fixture_six_holders_fund_transfer_authorize_freeze_and_query() {
+            let a = accounts();
+            caller(a.alice);
+            let mut l = ledger();
+            let allocation = [11u128, 22, 33, 44, 55, 66];
+            for n in 1u8..=6u8 {
+                let source = AccountId::from([n; 32]);
+                caller(a.alice);
+                assert_eq!(l.mint(source, allocation[(n - 1) as usize]), Ok(()));
+                caller(source);
+                assert_eq!(l.register_beneficiary([n; 20], 1), Ok(1));
+            }
+            assert_eq!(l.total_supply(), 231);
+            assert_eq!(l.holder_count(), 6);
+            assert_eq!(l.active_holder_count(), 6);
+            assert_eq!(l.unbound_active_holders(), 0);
+
+            // Six holders are funded, with unique historical indexes and an
+            // explicit destination binding authorized by each source caller.
+            for n in 1u8..=6u8 {
+                let source = AccountId::from([n; 32]);
+                let index = (n - 1) as u32;
+                assert_eq!(l.index_of(source), Some(index));
+                let (owner, balance, binding) = l.binding_at(index).unwrap();
+                assert_eq!(owner, source);
+                assert_eq!(balance, allocation[index as usize]);
+                let registered = binding.unwrap();
+                assert_eq!(registered.beneficiary, [n; 20]);
+                assert_eq!(registered.nonce, 1);
+            }
+            let first = AccountId::from([1u8; 32]);
+            let second = AccountId::from([2u8; 32]);
+            caller(first);
+            assert_eq!(l.transfer(second, 5), Ok(()));
+            let third = AccountId::from([3u8; 32]);
+            caller(third);
+            assert_eq!(l.burn(10), Ok(()));
+            let fourth = AccountId::from([4u8; 32]);
+            caller(fourth);
+            assert_eq!(l.register_beneficiary([44; 20], 2), Ok(2));
+            assert_eq!(l.register_beneficiary([99; 20], 2), Err(LedgerError::InvalidBindingNonce));
+            caller(AccountId::from([5u8; 32]));
+            assert_eq!(l.register_beneficiary([0; 20], 2), Err(LedgerError::InvalidBeneficiary));
+            let expected = [6u128, 27, 23, 44, 55, 66];
+            let mut sum = 0u128;
+            let mut seen = ink::prelude::collections::BTreeSet::new();
+            for (i, units) in expected.iter().enumerate() {
+                let (index, who, balance) = l.holder_page_indexed(i as u32, 1)[0];
+                assert_eq!(index, i as u32);
+                assert_eq!(balance, *units);
+                assert!(seen.insert(who));
+                sum = sum.checked_add(balance).unwrap();
+            }
+            assert_eq!(sum, 221);
+            assert_eq!(l.total_supply(), 221);
+            assert_eq!(l.holder_count(), 6);
+            assert_eq!(l.active_holder_count(), 6);
+            assert_eq!(l.unbound_active_holders(), 0);
+            caller(a.alice);
+            test::advance_block::<ink::env::DefaultEnvironment>();
+            assert_eq!(l.freeze(), Ok(()));
+            assert!(l.is_frozen());
+            let marker = l.freeze_marker().unwrap();
+            assert_eq!((marker.1, marker.2, marker.3, marker.4), (221, 6, 6, 0));
+            assert_eq!(l.registry_snapshot(), (true, [7;32], 12, 1000, 221, 6, 6));
+            // Every owner, not just admin, is blocked from mutating balances,
+            // beneficiaries and supply once source rights have been retired.
+            for n in 1u8..=6u8 {
+                caller(AccountId::from([n; 32]));
+                assert_eq!(l.transfer(second, 1), Err(LedgerError::Frozen));
+                assert_eq!(l.burn(1), Err(LedgerError::Frozen));
+                assert_eq!(l.register_beneficiary([100;20], 2), Err(LedgerError::Frozen));
+            }
+            caller(a.alice);
+            assert_eq!(l.mint(second, 1), Err(LedgerError::Frozen));
+            assert_eq!(l.freeze(), Err(LedgerError::AlreadyFrozen));
+            assert_eq!(l.total_supply(), 221);
+            assert_eq!(l.freeze_marker(), Some(marker));
+            for i in 0u32..6 {
+                assert_eq!(l.holder_at(i).unwrap().1, expected[i as usize]);
+            }
+        }
+
+        #[ink::test]
+        fn fixture_stranded_holder_prevents_cutover_and_original_balances_are_safe() {
+            let a = accounts();
+            caller(a.alice);
+            let mut l = ledger();
+            for n in 1u8..=6u8 {
+                let source = AccountId::from([n; 32]);
+                l.mint(source, 10).unwrap();
+                if n != 6 {
+                    caller(source);
+                    l.register_beneficiary([n; 20], 1).unwrap();
+                    caller(a.alice);
+                }
+            }
+            assert_eq!(l.unbound_active_holders(), 1);
+            let events = test::recorded_events().count();
+            assert_eq!(l.freeze(), Err(LedgerError::UnboundActiveHolders));
+            assert_eq!(l.freeze_marker(), None);
+            assert_eq!(test::recorded_events().count(), events);
+            assert_eq!(l.total_supply(), 60);
+            caller(AccountId::from([6u8; 32]));
+            assert_eq!(l.register_beneficiary([6;20], 1), Ok(1));
+            caller(a.alice);
+            assert_eq!(l.freeze(), Ok(()));
+            assert_eq!(l.total_supply(), 60);
+        }
+
+        #[ink::test]
+        fn fixture_holder_zero_balance_cannot_redirect_another_owner() {
+            let a = accounts();
+            caller(a.alice);
+            let mut l = ledger();
+            let first = AccountId::from([1u8; 32]);
+            let second = AccountId::from([2u8; 32]);
+            l.mint(first, 5).unwrap();
+            l.mint(second, 5).unwrap();
+            caller(second);
+            l.register_beneficiary([2;20], 1).unwrap();
+            l.burn(5).unwrap();
+            caller(first);
+            assert_eq!(l.register_beneficiary([1;20], 1), Ok(1));
+            assert_eq!(l.register_beneficiary([9;20], 1), Err(LedgerError::InvalidBindingNonce));
+            caller(second);
+            assert_eq!(l.register_beneficiary([8;20], 2), Err(LedgerError::NoActiveEntitlement));
+            assert_eq!(l.binding_of(first).unwrap().beneficiary, [1;20]);
+            assert_eq!(l.binding_of(second).unwrap().beneficiary, [2;20]);
+            assert_eq!(l.active_holder_count(), 1);
+            caller(a.alice);
+            assert_eq!(l.freeze(), Ok(()));
         }
 
         #[ink::test]
