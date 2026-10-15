@@ -42,6 +42,12 @@ expect_failure "pinned snapshot checkpoint is immutable" \
   "${PSQL[@]}" -c "UPDATE snapshot_runs SET pinned_block_hash = decode(repeat('13', 32), 'hex') WHERE id = '00000000-0000-4000-8000-000000000012'"
 expect_failure "completed snapshot partition cannot be reopened" \
   "${PSQL[@]}" -c "UPDATE snapshot_partitions SET status = 'queued' WHERE run_id = '00000000-0000-4000-8000-000000000011' AND partition_index = 0"
+expect_failure "snapshot holder UPDATE is forbidden" \
+  "${PSQL[@]}" -c "UPDATE snapshot_holders SET amount = 1 WHERE run_id = '00000000-0000-4000-8000-000000000011' AND source_index = 0"
+expect_failure "snapshot holder TRUNCATE is forbidden" \
+  "${PSQL[@]}" -c "TRUNCATE snapshot_holders"
+expect_failure "snapshot reconciliation UPDATE is forbidden" \
+  "${PSQL[@]}" -c "UPDATE snapshot_reconciliations SET outcome = 'failed' WHERE run_id = '00000000-0000-4000-8000-000000000011'"
 expect_failure "reconciliation record is required before snapshot completion" \
   "${PSQL[@]}" -c "UPDATE snapshot_runs SET status = 'reconciled', processed_holder_count = 1, recombined_digest = decode(repeat('88', 32), 'hex') WHERE id = '00000000-0000-4000-8000-000000000012'"
 expect_failure "idempotency key uniqueness is enforced" \
