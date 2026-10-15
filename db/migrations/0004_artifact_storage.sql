@@ -159,13 +159,13 @@ BEGIN
             RAISE EXCEPTION 'forbidden artifact lifecycle transition: % -> %', OLD.status, NEW.status
                 USING ERRCODE = '23514';
         END IF;
-        IF NEW.status IN ('expired','deleted') AND OLD.legal_hold THEN
+        IF NEW.status IN ('expired','deleted') AND (OLD.legal_hold OR NEW.legal_hold) THEN
             RAISE EXCEPTION 'artifact under legal hold cannot expire or be deleted' USING ERRCODE = '23514';
         END IF;
         IF NEW.status IN ('expired','deleted') AND (SELECT retention_until FROM artifact_objects WHERE id=OLD.artifact_object_id) > now() THEN
             RAISE EXCEPTION 'artifact retention period has not elapsed' USING ERRCODE = '23514';
         END IF;
-        IF NEW.legal_hold IS DISTINCT FROM OLD.legal_hold AND OLD.status <> 'available' THEN
+        IF NEW.legal_hold IS DISTINCT FROM OLD.legal_hold AND NEW.status <> 'available' THEN
             RAISE EXCEPTION 'legal hold can only change while an artifact is available' USING ERRCODE = '23514';
         END IF;
         IF NEW.status='deleted' THEN NEW.deleted_at := COALESCE(NEW.deleted_at, now()); END IF;
