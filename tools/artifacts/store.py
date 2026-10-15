@@ -81,7 +81,7 @@ def validate_upload(actor: ArtifactActor, artifact_kind: str, classification: st
         raise ArtifactError(403, "forbidden", "Actor role cannot upload this artifact kind.")
 
 
-def verify_artifact_content(content: bytes, content_sha256: str, expected_size: int, metadata: dict) -> None:
+def verify_artifact_content(content: bytes, content_sha256: str, expected_size: int, metadata: dict, expected_version: str | None = None) -> None:
     """Reject any read whose bytes, size, or immutable object metadata do not match."""
     if not re.fullmatch(r"[0-9a-f]{64}", content_sha256):
         raise ArtifactError(502, "artifact_integrity_failure")
@@ -91,6 +91,7 @@ def verify_artifact_content(content: bytes, content_sha256: str, expected_size: 
         or sha256(content).hexdigest() != content_sha256
         or metadata.get("sha256") != content_sha256
         or int(metadata.get("content_length", len(content))) != expected_size
+        or (expected_version is not None and metadata.get("version_id") != expected_version)
     ):
         raise ArtifactError(502, "artifact_integrity_failure")
 
@@ -345,7 +346,7 @@ class ArtifactStore:
         try:
             content, metadata = self._backend.get(str(key), str(version))
             try:
-                verify_artifact_content(content, content_sha256, int(size), metadata)
+                verify_artifact_content(content, content_sha256, int(size), metadata, str(version))
                 if sha256(content).digest() != bytes(digest):
                     raise ArtifactError(502, "artifact_integrity_failure")
             except ArtifactError:
