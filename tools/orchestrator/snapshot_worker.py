@@ -570,8 +570,8 @@ class SnapshotWorker:
                 ranges = [(int(x[0]), int(x[1]), int(x[2])) for x in cursor.fetchall()]
                 expected_start = 0
                 range_mismatch = False
-                for expected_index, start_index, end_index in ranges:
-                    if expected_index != len([r for r in ranges if r[0] < expected_index]) or start_index != expected_start or end_index <= start_index:
+                for expected_index, (partition_index_value, start_index, end_index) in enumerate(ranges):
+                    if partition_index_value != expected_index or start_index != expected_start or end_index <= start_index:
                         range_mismatch = True
                         break
                     expected_start = end_index
