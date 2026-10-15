@@ -6,7 +6,7 @@
 
 The ink! 5.1.1 contract in \`contracts/wasm/source-ledger/\` implements the first supported fungible-entitlement *source accounting* class: immutable asset ID, decimals and supply cap; issuer-only minting; holder-authorized transfers and burning; total-supply conservation; persistent historical holder registry; bounded read-only holder pagination; and a one-way owner-authorized freeze that makes mint, transfer and burn return errors. Unit tests exercise privilege bypasses, overflow, zero-value operations, cap breaches, duplicate/zero holders, one-time freeze and reconciliation after multiple operations.
 
-**Deliberate limitations:** The issuer owner remains capable of minting before freeze. This contract has no source-authorized destination EVM beneficiary registration (issue #22), cryptographic proof of finalized freeze (issue #23), audited chain storage trie verification (#28), external finality proof, Merkle snapshot (#25), or destination settlement. The on-chain registry is exhaustive *if the implementation is correct and the chain state is authentic*; a \`holder_page\` RPC response by itself proves neither.
+**Deliberate limitations:** The issuer owner remains capable of minting before freeze. Draft PR #103 adds source-caller-restricted destination beneficiary registration, immutable destination chain/contract/migration domains, strict nonces, registration events and a no-unbound-funded-holders freeze guard (#22), but this is NOT yet verified on a trusted chain. It still lacks cryptographic proof of finalized freeze (issue #23), audited chain storage trie verification (#28), independent finality proof, canonical Merkle snapshot (#25), or destination settlement. The on-chain registry is exhaustive *if the implementation is correct and the chain state is authentic*; a \`holder_page\` RPC response by itself proves neither.
 
 ### Storage schema for future audited source adapter
 
@@ -39,3 +39,8 @@ Successful off-chain ink! tests only verify code behavior under the ink! test en
 ## Issue #21: Indexed source inventory and reconciliation
 
 See [SOURCE_ENUMERATION.md](SOURCE_ENUMERATION.md) for the indexed registry reader, separate off-chain scanner, tombstone policy, fail-closed reconciliation, and why chain-finalized storage proofs remain required.
+
+
+## Issue #22: Source-signed destination beneficiary binding
+
+See [DESTINATION_BINDINGS.md](DESTINATION_BINDINGS.md). Holder mappings require their own pre-freeze source transaction; destination H160 is not derivable from AccountId32. The source ledger records each change and refuses to freeze while any funded holder is unbound. Chain-authenticated extrinsic origins and event/storage histories remain future verifier responsibilities.
