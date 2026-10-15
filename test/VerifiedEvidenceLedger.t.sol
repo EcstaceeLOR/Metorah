@@ -50,7 +50,7 @@ contract VerifiedEvidenceLedgerTest {
 
     function testRequiresQuorumAndDelayedActivationBeforeClaim() public {
         uint64 activation = uint64(block.timestamp + 1 days);
-        bytes32 root = ledger.leafHash(0, SOURCE, alice, 100);
+        bytes32 root = ledger.leafHash(0, SOURCE, address(this), 100);
         _propose(root, activation);
         bytes32[] memory proof = new bytes32[](0);
         (bool ok,) = address(ledger).call(abi.encodeCall(ledger.claim, (0, SOURCE, 100, proof)));
@@ -59,8 +59,8 @@ contract VerifiedEvidenceLedgerTest {
         assert(!ok);
         vm.warp(activation);
         ledger.activate();
-        (ok,) = address(ledger).call(abi.encodeCall(ledger.claim, (0, SOURCE, 100, proof)));
-        assert(!ok); // root leaf is contract-domain bound; fixture leaf below must match beneficiary
+        ledger.claim(0, SOURCE, 100, proof);
+        assert(ledger.credits(address(this)) == 100);
     }
 
     function testRejectsUnauthorizedSigner() public {
