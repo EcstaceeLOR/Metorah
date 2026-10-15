@@ -102,8 +102,12 @@ BEGIN
        NEW.retention_until > NEW.created_at + make_interval(days => policy.retention_days) THEN
         RAISE EXCEPTION 'artifact retention exceeds classification policy' USING ERRCODE = '23514';
     END IF;
-    IF NEW.storage_key !~ ('^tenants/' || NEW.tenant_id::text || '/' || policy.storage_prefix || '/sha256/[0-9a-f]{2}/[0-9a-f]{64}$') THEN
-        RAISE EXCEPTION 'artifact key must be tenant-scoped and content-addressed' USING ERRCODE = '23514';
+    IF NEW.storage_key <> (
+        'tenants/' || NEW.tenant_id::text || '/' || policy.storage_prefix || '/sha256/' ||
+        substr(encode(NEW.content_sha256, 'hex'), 1, 2) || '/' || encode(NEW.content_sha256, 'hex')
+    ) THEN
+        RAISE EXCEPTION 'artifact key must exactly match tenant, classification and content digest'
+            USING ERRCODE = '23514';
     END IF;
     RETURN NEW;
 END;
