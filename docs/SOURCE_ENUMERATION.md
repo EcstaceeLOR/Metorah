@@ -61,3 +61,8 @@ Execute from the repository root:
 The Python adversarial suite checks thousands of historical holders and zero-balance tombstones, while the ink! integration-style test exercises 130 actual contract balances crossing the 64-record pagination boundary. These prove local behavior only.
 
 Future work must implement the real chain RPC adapter and independently verifiable header/storage proof bundle, as well as beneficiary mapping and destination settlement (#22–#29, #36–#39).
+
+
+## Binding candidate snapshot (Issue #22)
+
+This original scanner intentionally reports balances/indices only. A separate [beneficiary binding inspector](DESTINATION_BINDINGS.md) now compares each positive entitlement with the latest source-caller registration, immutable destination domain and full reported event chain. **Both** scanners remain computational, untrusted-read-only checks. They do not provide source genesis/finality, chain-authenticated signing provenance or a claimable canonical Merkle root.

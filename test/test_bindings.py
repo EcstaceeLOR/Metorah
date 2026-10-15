@@ -156,6 +156,13 @@ class BindingsAuditTests(unittest.TestCase):
         r.histories[acct(1)][0]["destination_contract"] = h160(31)
         self.check_failure(r, "EVENT_DESTINATION_DOMAIN_MISMATCH")
 
+    def test_bool_chain_id_event_is_not_treated_as_integer_one(self):
+        r = RegistrationReader()
+        r.domain = (1, DESTINATION, MIGRATION)
+        r.histories[acct(1)][0]["destination_chain_id"] = True
+        r.histories[acct(3)][0]["destination_chain_id"] = 1
+        self.check_failure(r, "EVENT_DESTINATION_DOMAIN_MISMATCH")
+
     def test_nonce_gaps_fail(self):
         r = RegistrationReader()
         r.histories[acct(1)][0]["nonce"] = 2

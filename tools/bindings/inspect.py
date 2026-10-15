@@ -128,8 +128,10 @@ def inspect(
         if direct != (beneficiary, nonce):
             raise BindingAuditError("DIRECT_BINDING_DISAGREEMENT")
 
+        if nonce > 100_000:
+            raise BindingAuditError("BINDING_HISTORY_LIMIT_EXCEEDED")
         history = _read(reader.registration_events, acct, block)
-        if not isinstance(history, list) or len(history) != nonce or nonce > 100_000:
+        if not isinstance(history, list) or len(history) != nonce:
             raise BindingAuditError("INCOMPLETE_BINDING_HISTORY")
         prior = "0x" + "0" * 40
         for expected, event in enumerate(history, start=1):
@@ -143,7 +145,8 @@ def inspect(
             if _hex(event["source_owner"], H256, "INVALID_EVENT_OWNER") != acct or _hex(event["source_contract"], H256, "INVALID_EVENT_CONTRACT") != source:
                 raise BindingAuditError("EVENT_SOURCE_MISMATCH")
             if (
-                event["destination_chain_id"] != domain["chain_id"]
+                type(event["destination_chain_id"]) is not int
+                or event["destination_chain_id"] != domain["chain_id"]
                 or _hex(event["destination_contract"], H160, "INVALID_EVENT_DESTINATION") != domain["destination_contract"]
                 or _hex(event["migration_id"], H256, "INVALID_EVENT_MIGRATION") != domain["migration_id"]
             ):
