@@ -1,0 +1,26 @@
+# Python runtime/build outputs
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Solidity / Foundry build output
+out/
+cache/
+broadcast/
+
+# Local environment/secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# JS/Rust build output (future packages)
+node_modules/
+dist/
+target/
+.next/
+coverage/
+.DS_Store
