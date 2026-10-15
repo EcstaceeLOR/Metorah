@@ -872,6 +872,285 @@ mod metorah_source_ledger {
         }
 
         #[ink::test]
+        fn immutable_destination_domain_is_explicit_and_exact() {
+            let l = ledger();
+            assert_eq!(l.destination_domain(), (31_337, [9; 20], [11; 32]));
+            assert_eq!(l.unbound_active_holders(), 0);
+            assert_eq!(l.binding_of(accounts().alice), None);
+        }
+
+        #[ink::test]
+        #[should_panic(expected = "destination chain ID cannot be zero")]
+        fn reject_zero_destination_chain_id() {
+            MetorahSourceLedger::new([7; 32], 12, 1_000, 0, [9; 20], [11; 32]);
+        }
+
+        #[ink::test]
+        #[should_panic(expected = "destination contract cannot be zero")]
+        fn reject_zero_destination_contract() {
+            MetorahSourceLedger::new([7; 32], 12, 1_000, 31_337, [0; 20], [11; 32]);
+        }
+
+        #[ink::test]
+        #[should_panic(expected = "migration ID cannot be zero")]
+        fn reject_zero_migration_id() {
+            MetorahSourceLedger::new([7; 32], 12, 1_000, 31_337, [9; 20], [0; 32]);
+        }
+
+        #[ink::test]
+        fn source_holder_registration_binds_exact_source_account() {
+            let a = accounts();
+            let mut l = ledger();
+            l.mint(a.bob, 25).unwrap();
+            assert_eq!(l.unbound_active_holders(), 1);
+            caller(a.bob);
+            assert_eq!(l.register_beneficiary([7; 20], 1), Ok(1));
+            assert_eq!(l.binding_of(a.bob), Some(BindingRecord { beneficiary: [7; 20], nonce: 1 }));
+            assert_eq!(l.binding_at(0), Some((a.bob, 25, Some(BindingRecord { beneficiary: [7; 20], nonce: 1 }))));
+            assert_eq!(l.unbound_active_holders(), 0);
+            assert_eq!(l.destination_domain(), (31_337, [9; 20], [11; 32]));
+            caller(a.alice);
+            assert_eq!(l.binding_of(a.alice), None);
+        }
+
+        #[ink::test]
+        fn unregistered_or_zero_balance_account_cannot_write_a_mapping() {
+            let a = accounts();
+            let mut l = ledger();
+            caller(a.bob);
+            assert_eq!(l.register_beneficiary([7; 20], 1), Err(LedgerError::NoActiveEntitlement));
+            caller(a.alice);
+            l.mint(a.bob, 10).unwrap();
+            caller(a.bob);
+            l.burn(10).unwrap();
+            assert_eq!(l.register_beneficiary([7; 20], 1), Err(LedgerError::NoActiveEntitlement));
+            assert_eq!(l.binding_of(a.bob), None);
+        }
+
+        #[ink::test]
+        fn admin_cannot_register_for_another_holder_without_their_source_caller() {
+            let a = accounts();
+            let mut l = ledger();
+            l.mint(a.bob, 10).unwrap();
+            // There is deliberately no source-owner parameter on the method.
+            // The administrator can only register for their own funded balance.
+            assert_eq!(l.register_beneficiary([9; 20], 1), Err(LedgerError::NoActiveEntitlement));
+            assert_eq!(l.binding_of(a.bob), None);
+            caller(a.bob);
+            assert_eq!(l.register_beneficiary([2; 20], 1), Ok(1));
+            caller(a.alice);
+            assert_eq!(l.binding_of(a.bob).unwrap().beneficiary, [2; 20]);
+        }
+
+        #[ink::test]
+        fn monotonic_nonces_reject_replayed_or_skipped_updates() {
+            let a = accounts();
+            let mut l = ledger();
+            l.mint(a.bob, 10).unwrap();
+            caller(a.bob);
+            assert_eq!(l.register_beneficiary([2; 20], 2), Err(LedgerError::InvalidBindingNonce));
+            assert_eq!(l.register_beneficiary([2; 20], 0), Err(LedgerError::InvalidBindingNonce));
+            assert_eq!(l.binding_of(a.bob), None);
+            assert_eq!(l.register_beneficiary([2; 20], 1), Ok(1));
+            let registered = l.binding_of(a.bob);
+            assert_eq!(l.register_beneficiary([3; 20], 1), Err(LedgerError::InvalidBindingNonce));
+            assert_eq!(l.register_beneficiary([3; 20], 3), Err(LedgerError::InvalidBindingNonce));
+            assert_eq!(l.binding_of(a.bob), registered);
+            assert_eq!(l.register_beneficiary([3; 20], 2), Ok(2));
+            assert_eq!(l.binding_of(a.bob), Some(BindingRecord { beneficiary: [3; 20], nonce: 2 }));
+            assert_eq!(l.register_beneficiary([4; 20], 2), Err(LedgerError::InvalidBindingNonce));
+        }
+
+        #[ink::test]
+        fn no_registration_after_final_freeze_even_with_correct_nonce() {
+            let a = accounts();
+            let mut l = seeded();
+            assert_eq!(l.unbound_active_holders(), 0);
+            l.freeze().unwrap();
+            caller(a.bob);
+            assert_eq!(l.register_beneficiary([5; 20], 2), Err(LedgerError::Frozen));
+            assert_eq!(l.binding_of(a.bob), Some(BindingRecord { beneficiary: [2; 20], nonce: 1 }));
+            assert_eq!(l.unbound_active_holders(), 0);
+        }
+
+        #[ink::test]
+        fn freeze_refuses_to_strand_unregistered_positive_holders() {
+            let a = accounts();
+            let mut l = ledger();
+            l.mint(a.bob, 10).unwrap();
+            assert_eq!(l.freeze(), Err(LedgerError::UnboundActiveHolders));
+            assert!(!l.is_frozen());
+            assert_eq!(l.total_supply(), 10);
+            assert_eq!(l.unbound_active_holders(), 1);
+            caller(a.bob);
+            l.register_beneficiary([2; 20], 1).unwrap();
+            caller(a.alice);
+            assert_eq!(l.freeze(), Ok(()));
+            assert!(l.is_frozen());
+        }
+
+        #[ink::test]
+        fn zero_address_beneficiary_rejected_before_state_change() {
+            let a = accounts();
+            let mut l = seeded();
+            caller(a.bob);
+            let previous = l.binding_of(a.bob);
+            let events = test::recorded_events().count();
+            assert_eq!(l.register_beneficiary([0; 20], 2), Err(LedgerError::InvalidBeneficiary));
+            assert_eq!(l.binding_of(a.bob), previous);
+            assert_eq!(test::recorded_events().count(), events);
+        }
+
+        #[ink::test]
+        fn legitimate_holder_changes_beneficiary_pre_freeze_with_audit_event() {
+            let a = accounts();
+            let mut l = seeded();
+            caller(a.bob);
+            let n = test::recorded_events().count();
+            assert_eq!(l.register_beneficiary([7; 20], 2), Ok(2));
+            assert_eq!(test::recorded_events().count(), n + 1);
+            assert_eq!(l.binding_at(1), Some((a.bob, 40, Some(BindingRecord { beneficiary: [7; 20], nonce: 2 }))));
+            assert_eq!(l.unbound_active_holders(), 0);
+            caller(a.alice);
+            l.freeze().unwrap();
+            caller(a.bob);
+            assert_eq!(l.register_beneficiary([8; 20], 3), Err(LedgerError::Frozen));
+            assert_eq!(l.binding_of(a.bob).unwrap().nonce, 2);
+        }
+
+        #[ink::test]
+        fn recipient_without_mapping_increases_unbound_count_on_transfer() {
+            let a = accounts();
+            let mut l = seeded();
+            assert_eq!(l.unbound_active_holders(), 0);
+            l.transfer(a.charlie, 10).unwrap();
+            assert_eq!(l.unbound_active_holders(), 1);
+            assert_eq!(l.active_holder_count(), 3);
+            assert_eq!(l.freeze(), Err(LedgerError::UnboundActiveHolders));
+            caller(a.charlie);
+            assert_eq!(l.register_beneficiary([3; 20], 1), Ok(1));
+            caller(a.alice);
+            assert_eq!(l.freeze(), Ok(()));
+        }
+
+        #[ink::test]
+        fn unbound_sender_drains_to_bound_recipient_without_stranding() {
+            let a = accounts();
+            let mut l = seeded();
+            l.mint(a.charlie, 20).unwrap();
+            assert_eq!(l.unbound_active_holders(), 1);
+            caller(a.charlie);
+            l.transfer(a.bob, 20).unwrap();
+            assert_eq!(l.unbound_active_holders(), 0);
+            assert_eq!(l.balance_of(a.charlie), 0);
+            assert_eq!(l.active_holder_count(), 2);
+            caller(a.alice);
+            assert_eq!(l.freeze(), Ok(()));
+        }
+
+        #[ink::test]
+        fn unbound_sender_to_unbound_recipient_keeps_one_unbound() {
+            let a = accounts();
+            let mut l = ledger();
+            l.mint(a.bob, 20).unwrap();
+            assert_eq!(l.unbound_active_holders(), 1);
+            caller(a.bob);
+            l.transfer(a.charlie, 20).unwrap();
+            assert_eq!(l.unbound_active_holders(), 1);
+            assert_eq!(l.active_holder_count(), 1);
+            assert_eq!(l.freeze(), Err(LedgerError::Unauthorized));
+            caller(a.alice);
+            assert_eq!(l.freeze(), Err(LedgerError::UnboundActiveHolders));
+        }
+
+        #[ink::test]
+        fn unbound_burn_to_zero_eliminates_unbound_liability() {
+            let a = accounts();
+            let mut l = ledger();
+            l.mint(a.bob, 20).unwrap();
+            assert_eq!(l.unbound_active_holders(), 1);
+            caller(a.bob);
+            l.burn(20).unwrap();
+            assert_eq!(l.unbound_active_holders(), 0);
+            assert_eq!(l.active_holder_count(), 0);
+            caller(a.alice);
+            assert_eq!(l.freeze(), Ok(()));
+        }
+
+        #[ink::test]
+        fn registered_zero_balance_tombstone_keeps_binding_for_future_receipts() {
+            let a = accounts();
+            let mut l = seeded();
+            caller(a.bob);
+            l.burn(40).unwrap();
+            assert_eq!(l.active_holder_count(), 1);
+            assert_eq!(l.binding_at(1).unwrap().2.unwrap().beneficiary, [2; 20]);
+            caller(a.alice);
+            l.mint(a.bob, 15).unwrap();
+            assert_eq!(l.unbound_active_holders(), 0);
+            assert_eq!(l.binding_at(1), Some((a.bob, 15, Some(BindingRecord { beneficiary: [2; 20], nonce: 1 }))));
+            assert_eq!(l.freeze(), Ok(()));
+        }
+
+        #[ink::test]
+        fn nonce_overflow_rejected_without_losing_old_mapping() {
+            let a = accounts();
+            let mut l = seeded();
+            let original = BindingRecord { beneficiary: [2; 20], nonce: u64::MAX };
+            l.bindings.insert(&a.bob, &original);
+            caller(a.bob);
+            assert_eq!(l.register_beneficiary([3; 20], 0), Err(LedgerError::BindingNonceExhausted));
+            assert_eq!(l.binding_of(a.bob), Some(original));
+            assert_eq!(l.unbound_active_holders(), 0);
+        }
+
+        #[ink::test]
+        fn historical_account_without_binding_is_visible_and_nonclaimable() {
+            let a = accounts();
+            let mut l = ledger();
+            l.mint(a.bob, 5).unwrap();
+            caller(a.bob);
+            l.burn(5).unwrap();
+            assert_eq!(l.binding_at(0), Some((a.bob, 0, None)));
+            assert_eq!(l.unbound_active_holders(), 0);
+            caller(a.alice);
+            assert_eq!(l.freeze(), Ok(()));
+        }
+
+        #[ink::test]
+        fn destination_domain_differs_between_independent_migrations() {
+            let a = accounts();
+            let mut first = ledger();
+            let mut second = MetorahSourceLedger::new([7; 32], 12, 1_000, 31_338, [8; 20], [12; 32]);
+            first.mint(a.bob, 10).unwrap();
+            second.mint(a.bob, 10).unwrap();
+            caller(a.bob);
+            first.register_beneficiary([3; 20], 1).unwrap();
+            // A registration in one deployment has no effect on a second.
+            assert_eq!(second.binding_of(a.bob), None);
+            second.register_beneficiary([4; 20], 1).unwrap();
+            assert_ne!(first.destination_domain(), second.destination_domain());
+            assert_ne!(first.binding_of(a.bob), second.binding_of(a.bob));
+            caller(a.alice);
+            assert_eq!(first.freeze(), Ok(()));
+            assert_eq!(second.freeze(), Ok(()));
+        }
+
+        #[ink::test]
+        fn malicious_attempt_to_update_another_holders_binding_only_changes_caller() {
+            let a = accounts();
+            let mut l = seeded();
+            caller(a.charlie);
+            assert_eq!(l.register_beneficiary([8; 20], 1), Err(LedgerError::NoActiveEntitlement));
+            assert_eq!(l.binding_of(a.bob).unwrap().beneficiary, [2; 20]);
+            caller(a.alice);
+            // Even the issuer can only modify its own beneficiary.
+            l.register_beneficiary([8; 20], 2).unwrap();
+            assert_eq!(l.binding_of(a.alice).unwrap().beneficiary, [8; 20]);
+            assert_eq!(l.binding_of(a.bob).unwrap().beneficiary, [2; 20]);
+        }
+
+        #[ink::test]
         fn errors_do_not_emit_events() {
             let a = accounts();
             let mut l = ledger();
