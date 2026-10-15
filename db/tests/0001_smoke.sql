@@ -18,8 +18,8 @@ INSERT INTO migrations (
  '00000000-0000-4000-8000-000000000006',
  '00000000-0000-4000-8000-000000000001', 'migration-test-1',
  '00000000-0000-4000-8000-000000000003', '00000000-0000-4000-8000-000000000004',
- '00000000-0000-4000-8000-000000000005', 'frozen', 12345,
- decode(repeat('11', 32), 'hex'), 1000, '00000000-0000-4000-8000-000000000002'
+ '00000000-0000-4000-8000-000000000005', 'draft', NULL,
+ NULL, 1000, '00000000-0000-4000-8000-000000000002'
 );
 INSERT INTO manifest_versions (
  id, migration_id, version, format_version, manifest_hash, leaf_count, total_allocation, created_by
@@ -86,12 +86,16 @@ INSERT INTO claim_receipts (
  decode(repeat('77', 32), 'hex'), 54321, decode(repeat('88', 32), 'hex'), 0,
  decode(repeat('99', 32), 'hex')
 );
-INSERT INTO migration_state_events (migration_id, from_state, to_state, actor_type, actor_id, reason_code)
-VALUES ('00000000-0000-4000-8000-000000000006', 'draft', 'frozen', 'user', 'operator@example.test', 'source-freeze-confirmed');
-
 BEGIN;
 SELECT set_config('metorah.actor_type', 'user', true);
 SELECT set_config('metorah.actor_id', 'operator@example.test', true);
+SELECT set_config('metorah.reason_code', 'source-eligible', true);
+UPDATE migrations SET status = 'enumerating', version = version + 1
+WHERE id = '00000000-0000-4000-8000-000000000006';
+SELECT set_config('metorah.reason_code', 'source-freeze-confirmed', true);
+UPDATE migrations SET status = 'frozen', version = version + 1,
+    source_freeze_block_number = 12345, source_freeze_block_hash = decode(repeat('11', 32), 'hex')
+WHERE id = '00000000-0000-4000-8000-000000000006';
 SELECT set_config('metorah.reason_code', 'verification-started', true);
 UPDATE migrations SET status = 'verifying', version = version + 1
 WHERE id = '00000000-0000-4000-8000-000000000006';
@@ -107,13 +111,13 @@ INSERT INTO audit_events (
 
 DO $$
 BEGIN
-    IF (SELECT count(*) FROM migrations WHERE status = 'verifying' AND version = 2) <> 1 THEN RAISE EXCEPTION 'migration status transition missing'; END IF;
+    IF (SELECT count(*) FROM migrations WHERE status = 'verifying' AND version = 4) <> 1 THEN RAISE EXCEPTION 'migration status transition missing'; END IF;
     IF (SELECT count(*) FROM verified_evidence) <> 1 THEN RAISE EXCEPTION 'verified evidence row missing'; END IF;
     IF (SELECT count(*) FROM claims WHERE state = 'settled') <> 1 THEN RAISE EXCEPTION 'settled claim missing'; END IF;
     IF (SELECT count(*) FROM audit_events) <> 1 THEN RAISE EXCEPTION 'audit row missing'; END IF;
-    IF (SELECT count(*) FROM migration_state_events WHERE migration_id = '00000000-0000-4000-8000-000000000006') <> 2 THEN RAISE EXCEPTION 'status transition was not recorded atomically'; END IF;
-    IF (SELECT count(*) FROM outbox_events) <> 4 THEN RAISE EXCEPTION 'transactional outbox events missing'; END IF;
-    IF (SELECT count(*) FROM outbox_delivery) <> 4 THEN RAISE EXCEPTION 'outbox delivery rows missing'; END IF;
+    IF (SELECT count(*) FROM migration_state_events WHERE migration_id = '00000000-0000-4000-8000-000000000006') <> 3 THEN RAISE EXCEPTION 'status transition was not recorded atomically'; END IF;
+    IF (SELECT count(*) FROM outbox_events) <> 6 THEN RAISE EXCEPTION 'transactional outbox events missing'; END IF;
+    IF (SELECT count(*) FROM outbox_delivery) <> 6 THEN RAISE EXCEPTION 'outbox delivery rows missing'; END IF;
     IF (SELECT count(*) FROM job_attempt_events WHERE job_id = '00000000-0000-4000-8000-000000000009') <> 2 THEN RAISE EXCEPTION 'job attempt timeline missing'; END IF;
     IF (SELECT count(*) FROM idempotency_records WHERE operation = 'migration.transition') <> 1 THEN RAISE EXCEPTION 'idempotency record missing'; END IF;
 END;
