@@ -1,0 +1,125 @@
+{
+  "experiment": "StateLift Genesis \u2014 offline logical feasibility",
+  "recorded_at_utc": "2026-10-15T12:44:59.502291+00:00",
+  "mode": "OFFLINE-SIMULATION; NOT PORTALDOT; NOT EVM; NOT ON-CHAIN",
+  "portaldot_node_started": false,
+  "portaldot_contract_deployed": false,
+  "source_state_authenticated_by_trusted_chain_header": false,
+  "assumptions": [
+    "source ledger is fully enumerable and trusted",
+    "source supports a permanent freeze",
+    "local Ed25519 public keys stand in for wallet identities",
+    "destination is a Python logical model, not a smart contract",
+    "entitlement snapshot is independently checked against full source state"
+  ],
+  "source_simulated_state_hash": "187e32b907010fa4f8bbc4e650187bf6e26d4f8a61e03279a350f3574bf9fc1c",
+  "source_simulated_block_number": 42,
+  "merkle_root": "bf5d5fe5bccb031bd16b4bc34cb38d093eedfa49b4a959484c6d67348d8311cc",
+  "migration_id": "f0ef7e7939e5da95ae4a1547df0af33e25935b252fdf6f2972b1429527e041d0",
+  "totals": {
+    "source": {
+      "Alice": 390,
+      "Bob": 260,
+      "Charlie": 200,
+      "Diana": 100,
+      "Eve": 50
+    },
+    "target": {
+      "Alice": 390,
+      "Bob": 260,
+      "Charlie": 200,
+      "Diana": 100,
+      "Eve": 50
+    },
+    "source_frozen": true,
+    "source_total": 1000,
+    "claimed_total": 1000,
+    "unclaimed_total": 0
+  },
+  "checks": [
+    {
+      "test": "before freeze: valid balance transfer",
+      "status": "PASS"
+    },
+    {
+      "test": "after freeze: source transfer blocked",
+      "status": "PASS",
+      "reason": "source frozen: transfers disabled"
+    },
+    {
+      "test": "after freeze: repeated freeze blocked",
+      "status": "PASS",
+      "reason": "source already frozen"
+    },
+    {
+      "test": "snapshot independently matches frozen enumerable ledger",
+      "status": "PASS"
+    },
+    {
+      "test": "tampered balances even with rehashed root rejected",
+      "status": "PASS",
+      "reason": "snapshot entitlement differs from trusted source"
+    },
+    {
+      "test": "omitted user with rehashed root detected",
+      "status": "PASS",
+      "reason": "snapshot omits positive entitlements or contains extras"
+    },
+    {
+      "test": "third-party account theft blocked",
+      "status": "PASS",
+      "reason": "invalid source-account authorization"
+    },
+    {
+      "test": "destination redirection blocked",
+      "status": "PASS",
+      "reason": "invalid source-account authorization"
+    },
+    {
+      "test": "tampered claim with authentic proof blocked",
+      "status": "PASS",
+      "reason": "invalid Merkle entitlement proof"
+    },
+    {
+      "test": "legitimate Alice claim accepted",
+      "status": "PASS"
+    },
+    {
+      "test": "duplicate Alice claim rejected",
+      "status": "PASS",
+      "reason": "already claimed"
+    },
+    {
+      "test": "cross-migration replay rejected",
+      "status": "PASS",
+      "reason": "migration domain mismatch"
+    },
+    {
+      "test": "wrong destination contract rejected",
+      "status": "PASS",
+      "reason": "verified snapshot is for a different destination"
+    },
+    {
+      "test": "all remaining legitimate claims accepted",
+      "status": "PASS"
+    },
+    {
+      "test": "source and destination value conservation verified",
+      "status": "PASS"
+    },
+    {
+      "test": "five unique claims, exactly matching expected balances",
+      "status": "PASS"
+    }
+  ],
+  "check_count": 16,
+  "passes": 16,
+  "failures": [],
+  "remaining_blockers": [
+    "Run Portaldot development node and deploy genuine freezeable WASM source contract",
+    "Authenticate enumerated source state with genuine finalized on-chain storage evidence",
+    "Deploy and test destination claims on a confirmed qualifying Portaldot V3 environment",
+    "Prove safe cutover and old-state retirement on-chain, not just in Python",
+    "Map Substrate AccountId32 to EVM H160 using appropriate ownership proofs if cross-VM"
+  ]
+}

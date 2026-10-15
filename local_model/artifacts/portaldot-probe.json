@@ -1,0 +1,11 @@
+{
+  "mode": "read-only RPC probe",
+  "timestamp_utc": "2026-10-15T11:01:46.041403+00:00",
+  "endpoint": "ws://127.0.0.1:9944",
+  "reachable": false,
+  "rpc": {},
+  "contract_deployed": false,
+  "evm_deployed": false,
+  "note": "RPC responses do not establish contract-deployment support",
+  "connection_error": "ConnectionRefusedError: [Errno 111] Connect call failed ('127.0.0.1', 9944)"
+}

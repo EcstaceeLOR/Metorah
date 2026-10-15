@@ -1,0 +1,41 @@
+{
+  "metadata": {
+    "protocol": "statelift-poc-v1",
+    "source_genesis": "simulated:portaldot-source-genesis",
+    "source_contract": "simulated:source-ledger-v1",
+    "simulated_block_number": 42,
+    "simulated_state_hash": "187e32b907010fa4f8bbc4e650187bf6e26d4f8a61e03279a350f3574bf9fc1c",
+    "target_genesis": "simulated:destination-genesis",
+    "target_contract": "simulated:destination-claim-v1"
+  },
+  "migration_id": "f0ef7e7939e5da95ae4a1547df0af33e25935b252fdf6f2972b1429527e041d0",
+  "entries": [
+    {
+      "migration_id": "f0ef7e7939e5da95ae4a1547df0af33e25935b252fdf6f2972b1429527e041d0",
+      "source_pubkey": "2ef8fef4c6b25ddaf2d2ab294a7f4f80c046bf0432fdb0efedca61875956bb82",
+      "units": 200
+    },
+    {
+      "migration_id": "f0ef7e7939e5da95ae4a1547df0af33e25935b252fdf6f2972b1429527e041d0",
+      "source_pubkey": "41674312b7b0d1d63332a8a531be3332dfb399cffed11d439b5bb6924453161c",
+      "units": 260
+    },
+    {
+      "migration_id": "f0ef7e7939e5da95ae4a1547df0af33e25935b252fdf6f2972b1429527e041d0",
+      "source_pubkey": "73932cf182a4e7e036575367240b4d26b495768742db2ec37b4331fb12e1842e",
+      "units": 390
+    },
+    {
+      "migration_id": "f0ef7e7939e5da95ae4a1547df0af33e25935b252fdf6f2972b1429527e041d0",
+      "source_pubkey": "a062ebd7bc94f34469a97efaa3df1640fde01bcd133bcebffb6b5343bebbb0ea",
+      "units": 100
+    },
+    {
+      "migration_id": "f0ef7e7939e5da95ae4a1547df0af33e25935b252fdf6f2972b1429527e041d0",
+      "source_pubkey": "a5ca26f745e30f7958ece4f84e97f79abc36ffb4ca6dff37ee62c4582ee3fbcb",
+      "units": 50
+    }
+  ],
+  "root": "bf5d5fe5bccb031bd16b4bc34cb38d093eedfa49b4a959484c6d67348d8311cc",
+  "total": 1000
+}
