@@ -308,13 +308,15 @@ class ArtifactStore:
         actor: ArtifactActor,
         migration_id: str,
         content_sha256: str,
-        artifact_kind: str | None = None,
+        artifact_kind: str,
         request_id: str | None = None,
     ) -> ArtifactDownload:
         if not isinstance(actor, ArtifactActor) or not actor.tenant_id or not actor.subject or not actor.roles:
             raise ArtifactError(401, "unauthorized")
         if not re.fullmatch(r"[0-9a-f]{64}", content_sha256):
             raise ArtifactError(400, "invalid_content_hash")
+        if artifact_kind not in ARTIFACT_KINDS:
+            raise ArtifactError(400, "invalid_artifact_kind")
         connection, cursor = self._open()
         try:
             query = (
@@ -326,9 +328,8 @@ class ArtifactStore:
                 "WHERE ma.tenant_id=%s AND ma.migration_id=%s AND ao.content_sha256=%s"
             )
             params: list[Any] = [actor.tenant_id, migration_id, bytes.fromhex(content_sha256)]
-            if artifact_kind is not None:
-                query += " AND ma.artifact_kind=%s"
-                params.append(artifact_kind)
+            query += " AND ma.artifact_kind=%s"
+            params.append(artifact_kind)
             query += " ORDER BY ma.revision DESC LIMIT 1"
             cursor.execute(query, tuple(params))
             row = cursor.fetchone()
