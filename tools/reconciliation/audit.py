@@ -56,7 +56,12 @@ def _keys(value: Any, expected: frozenset[str], code: str) -> dict:
 
 
 def _u(value: Any, name: str, limit: int, *, permit_zero: bool = False) -> int:
-    if not isinstance(value, str) or manifest_v1.DEC.fullmatch(value) is None:
+    if (not isinstance(value, str)
+            or manifest_v1.DEC.fullmatch(value) is None
+            or len(value) > len(str(limit))):
+        # Bound parsed digits BEFORE int() to prevent untrusted 10k-digit
+        # decimal values from triggering Python's integer-string conversion
+        # exception or excessive CPU/memory use.
         raise ReconciliationError("INVALID_" + name.upper())
     n = int(value)
     if n > limit or n < (0 if permit_zero else 1):

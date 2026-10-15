@@ -316,6 +316,30 @@ class ReconciliationTests(unittest.TestCase):
         s["events"][0]["amount"] = str(1 << 128)
         self.fails("INVALID_AMOUNT", source=s)
 
+    def test_hostile_very_long_decimal_amount_fails_cleanly(self):
+        s = copy.deepcopy(self.source)
+        s["events"][0]["amount"] = "9" * 5000
+        self.fails("INVALID_AMOUNT", source=s)
+
+    def test_hostile_very_long_supply_cap_fails_cleanly(self):
+        s = copy.deepcopy(self.source)
+        s["max_supply"] = "9" * 5000
+        self.fails("INVALID_MAX_SUPPLY", source=s)
+
+    def test_reindexed_deleted_issuance_still_fails_accounting(self):
+        s = copy.deepcopy(self.source)
+        s["events"].pop(5)  # removes original F mint; reindexes to hide gap
+        for i, event in enumerate(s["events"]):
+            event["event_index"] = i
+        self.fails("FREEZE_SUPPLY_MISMATCH", source=s)
+
+    def test_deleted_final_binding_event_with_reindexed_events_fails_freeze(self):
+        s = copy.deepcopy(self.source)
+        s["events"].pop(12)  # source F no longer has authorized beneficiary
+        for i, event in enumerate(s["events"]):
+            event["event_index"] = i
+        self.fails("FREEZE_UNBOUND_COUNT_MISMATCH", source=s)
+
     def test_fraudulent_positive_tombstone_balance_rejected(self):
         s = copy.deepcopy(self.source)
         s["slots"][1]["units"] = "1"
