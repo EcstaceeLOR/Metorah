@@ -1,0 +1,16 @@
+[package]
+name = "metorah-trie-verifier"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Offline Substrate trie proof verification, NOT consensus finality or approved asset migration"
+
+[dependencies]
+sp-trie = { version = "=46.0.0" }
+sp-core = { version = "=43.0.0" }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+hex = "0.4"
+
+[profile.release]
+panic = "abort"
