@@ -11,7 +11,7 @@ The initial relational schema is in `db/migrations/0001_initial.sql`; the matchi
 - **Durable work**: `jobs`, `job_attempts`. Migration-scoped idempotency keys and per-job attempt numbers are unique; attempts are append-only.
 - **Approvals**: `approvals` stores public approval signatures and signer identities, not private signing keys or wallet secrets. A signer can provide only one decision for a given migration, approval kind, subject digest, and identity.
 - **Claims and receipts**: `claims`, `claim_receipts`. Claim index and source-account digest are unique within a migration; a claim has at most one canonical receipt, unique by destination chain, transaction, and log index.
-- **Audit history**: `audit_events` records tenant-scoped actors, entity references, correlation IDs, payloads, and optional previous-event hashes. UPDATE and DELETE are rejected by database triggers. The schema does not claim cryptographic hash-chain validation until the application computes and verifies each event hash.
+- **Audit history**: `audit_events` records tenant-scoped actors, entity references, correlation IDs, payloads, and optional previous-event hashes. UPDATE, DELETE, and TRUNCATE are rejected by database triggers. The schema does not claim cryptographic hash-chain validation until the application computes and verifies each event hash.
 
 ## Integrity and operations
 
