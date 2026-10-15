@@ -99,6 +99,28 @@ contract VerifiedTokenClaimLedgerTest {
         assert(ledger.totalClaimed() == 400);
         assert(settlement.totalSettled() == 400);
         assert(settlement.availableBacking() == 600);
+
+        (bytes32 receiptSource, address receiptBeneficiary, uint256 receiptAmount, bytes32 receiptClaimId, uint256 settledAt) =
+            ledger.claimReceipts(7);
+        assert(receiptSource == SOURCE);
+        assert(receiptBeneficiary == BENEFICIARY);
+        assert(receiptAmount == 400);
+        assert(receiptClaimId == keccak256(abi.encode(MIGRATION, uint256(7), SOURCE)));
+        assert(settledAt == block.timestamp);
+
+        VerifiedTokenClaimLedger.MigrationStatus memory status = ledger.migrationStatus();
+        assert(status.migrationId == MIGRATION);
+        assert(status.sourceFreezeEvidenceHash == FREEZE);
+        assert(status.merkleRoot == root);
+        assert(status.totalAllocation == 1000);
+        assert(status.totalClaimed == 400);
+        assert(status.totalFunded == 1000);
+        assert(status.totalSettled == 400);
+        assert(status.escrowTokenBalance == 600);
+        assert(status.remainingFundedLiability == 600);
+        assert(status.unfundedAuthorizedAllocation == 0);
+        assert(status.availableBacking == 600);
+        assert(status.activated && !status.paused);
     }
 
     function testUnboundOrWrongBeneficiaryCannotClaim() public {
