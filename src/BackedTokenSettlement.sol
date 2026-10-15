@@ -34,6 +34,7 @@ contract BackedTokenSettlement {
 
     event Funded(address indexed funder, uint256 amount, uint256 totalFunded);
     event Settled(bytes32 indexed claimId, address indexed beneficiary, uint256 amount, uint256 totalSettled);
+    event SurplusRecovered(address indexed recipient, uint256 amount, uint256 escrowBalanceAfter);
     event SettlementAccountingUpdated(
         uint256 authorizedAllocation,
         uint256 totalFunded,
@@ -99,6 +100,26 @@ contract BackedTokenSettlement {
             revert UnsupportedTokenBehavior();
         }
         emit Settled(claimId, beneficiary, amount, totalSettled);
+        _emitAccountingUpdate(afterBalance);
+    }
+
+    /// @notice Controller may recover unsolicited surplus only; funded holder liabilities remain protected.
+    function recoverSurplus(address recipient, uint256 amount) external nonReentrant {
+        if (msg.sender != controller) revert Unauthorized();
+        if (recipient == address(0) || recipient == address(this) || amount == 0) revert InvalidAmount();
+
+        uint256 beforeBalance = token.balanceOf(address(this));
+        uint256 liability = totalFunded - totalSettled;
+        if (beforeBalance < liability || amount > beforeBalance - liability) revert InsufficientBacking();
+        uint256 recipientBefore = token.balanceOf(recipient);
+        _safeTransfer(recipient, amount);
+        uint256 afterBalance = token.balanceOf(address(this));
+        uint256 recipientAfter = token.balanceOf(recipient);
+        if (afterBalance > beforeBalance || beforeBalance - afterBalance != amount ||
+            recipientAfter < recipientBefore || recipientAfter - recipientBefore != amount) {
+            revert UnsupportedTokenBehavior();
+        }
+        emit SurplusRecovered(recipient, amount, afterBalance);
         _emitAccountingUpdate(afterBalance);
     }
 

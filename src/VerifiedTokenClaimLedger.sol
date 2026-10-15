@@ -22,7 +22,8 @@ contract VerifiedTokenClaimLedger {
     uint256 public immutable totalAllocation;
     uint64 public immutable reviewDelay;
     uint8 public immutable quorum;
-    address public immutable administrator;
+    address public administrator;
+    address public pendingAdministrator;
     SourceAuthorizedBindings public immutable bindings;
     BackedTokenSettlement public settlement;
 
@@ -73,6 +74,10 @@ contract VerifiedTokenClaimLedger {
     event SettlementConfigured(address indexed settlement);
     event ClaimsPaused(address indexed account);
     event ClaimsUnpaused(address indexed account);
+    event AdministratorTransferStarted(address indexed currentAdministrator, address indexed pendingAdministrator);
+    event AdministratorTransferred(address indexed previousAdministrator, address indexed newAdministrator);
+    event EvidenceCancelled(bytes32 indexed previousRoot, bytes32 indexed previousManifestHash);
+    event SurplusRecovered(address indexed recipient, uint256 amount);
     event ClaimReceiptRecorded(
         uint256 indexed index,
         bytes32 indexed claimId,
@@ -95,6 +100,7 @@ contract VerifiedTokenClaimLedger {
     error ReentrantCall();
     error ProofTooLong();
     error ClaimsArePaused();
+    error InvalidAdministrator();
 
     modifier nonReentrant() {
         if (_claimEntered) revert ReentrantCall();
@@ -131,6 +137,43 @@ contract VerifiedTokenClaimLedger {
             if (signer == address(0) || authorizedSigner[signer]) revert InvalidConfiguration();
             authorizedSigner[signer] = true;
         }
+    }
+
+    /// @notice Two-step admin handover prevents accidental transfer to an unusable address.
+    function proposeAdministrator(address nextAdministrator) external {
+        if (msg.sender != administrator) revert Unauthorized();
+        if (nextAdministrator == address(0) || nextAdministrator == administrator) revert InvalidAdministrator();
+        pendingAdministrator = nextAdministrator;
+        emit AdministratorTransferStarted(administrator, nextAdministrator);
+    }
+
+    function acceptAdministrator() external {
+        if (msg.sender != pendingAdministrator || msg.sender == address(0)) revert Unauthorized();
+        address previous = administrator;
+        administrator = msg.sender;
+        pendingAdministrator = address(0);
+        emit AdministratorTransferred(previous, msg.sender);
+    }
+
+    /// @notice Root correction is permitted only before activation; cancellation clears the reviewed root.
+    function cancelEvidence() external {
+        if (msg.sender != administrator) revert Unauthorized();
+        if (!proposed || activated) revert InvalidEvidence();
+        bytes32 previousRoot = merkleRoot;
+        bytes32 previousManifest = manifestHash;
+        proposed = false;
+        merkleRoot = bytes32(0);
+        manifestHash = bytes32(0);
+        activationTime = 0;
+        emit EvidenceCancelled(previousRoot, previousManifest);
+    }
+
+    /// @notice Recover only tokens exceeding all remaining funded holder liabilities.
+    function recoverSurplus(address recipient, uint256 amount) external {
+        if (msg.sender != administrator) revert Unauthorized();
+        if (address(settlement) == address(0)) revert InvalidConfiguration();
+        settlement.recoverSurplus(recipient, amount);
+        emit SurplusRecovered(recipient, amount);
     }
 
     /// @notice One-time wiring after deploying this ledger, with this ledger as the escrow controller.
