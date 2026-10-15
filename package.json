@@ -1,0 +1,11 @@
+{
+  "name": "metorah",
+  "private": true,
+  "version": "0.0.0",
+  "packageManager": "pnpm@10.19.0",
+  "engines": { "node": ">=24.13.0 <25" },
+  "scripts": {
+    "check": "node tools/workspace/check.mjs",
+    "test:js": "pnpm -r test"
+  }
+}

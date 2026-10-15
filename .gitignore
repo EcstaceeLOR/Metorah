@@ -4,11 +4,23 @@ __pycache__/
 .pytest_cache/
 .venv/
 venv/
+*.egg-info/
 
 # Solidity / Foundry build output
 out/
 cache/
 broadcast/
+
+# JS/Rust build output
+node_modules/
+dist/
+target/
+.next/
+coverage/
+.turbo/
+.pnpm-store/
+*.tsbuildinfo
+.DS_Store
 
 # Local environment/secrets
 .env
@@ -16,11 +28,8 @@ broadcast/
 !.env.example
 *.pem
 *.key
-
-# JS/Rust build output (future packages)
-node_modules/
-dist/
-target/
-.next/
-coverage/
-.DS_Store
+*.p12
+*.keystore
+*.secret
+.vscode/
+.idea/
