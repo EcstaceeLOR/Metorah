@@ -174,9 +174,16 @@ END;
 $$;
 
 CREATE FUNCTION guard_job_state_transition() RETURNS trigger
-LANGUAGE plpgsql AS $$
+LANGUAGE plpgsql AS $
 DECLARE allowed boolean := false;
 BEGIN
+    IF TG_OP = 'INSERT' THEN
+        IF NEW.state <> 'queued' THEN
+            RAISE EXCEPTION 'new jobs must start queued'
+                USING ERRCODE = '23514';
+        END IF;
+        RETURN NEW;
+    END IF;
     IF NEW.state IS DISTINCT FROM OLD.state THEN
         allowed :=
             (OLD.state = 'queued' AND NEW.state IN ('running', 'cancelled')) OR
@@ -192,8 +199,21 @@ BEGIN
     RETURN NEW;
 END;
 $$;
-CREATE TRIGGER jobs_state_guard BEFORE UPDATE OF state ON jobs
+CREATE TRIGGER jobs_state_guard BEFORE INSERT OR UPDATE OF state ON jobs
 FOR EACH ROW EXECUTE FUNCTION guard_job_state_transition();
+
+CREATE FUNCTION guard_migration_initial_state() RETURNS trigger
+LANGUAGE plpgsql AS $
+BEGIN
+    IF NEW.status <> 'draft' OR NEW.version <> 1 THEN
+        RAISE EXCEPTION 'new migrations must start in draft at version 1'
+            USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END;
+$;
+CREATE TRIGGER migrations_initial_state_guard BEFORE INSERT ON migrations
+FOR EACH ROW EXECUTE FUNCTION guard_migration_initial_state();
 
 CREATE FUNCTION record_job_outbox_event() RETURNS trigger
 LANGUAGE plpgsql AS $$
