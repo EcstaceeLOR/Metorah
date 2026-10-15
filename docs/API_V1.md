@@ -17,6 +17,13 @@ Role policy:
 
 This module is an authorization policy primitive, not a deployed JWT verifier or HTTP server. The future API middleware must establish trusted claims before invoking it and must fail closed if identity, tenant, role, or resource ownership cannot be established.
 
+## Evidence artifact endpoints
+
+- `POST /api/v1/migrations/{migrationId}/artifacts` accepts multipart content with artifact kind, classification, and revision. The server computes the content digest and never accepts a client-selected object key.
+- `GET /api/v1/migrations/{migrationId}/artifacts/{contentSha256}?kind=...` returns the verified bytes as an attachment, with `X-Content-SHA256`, classification, kind, revision, media-type, and `Cache-Control: no-store` headers. Reviewers can independently compare the digest to the downloaded file.
+- Download requires a tenant-scoped migration link and classification-specific role. Account mappings are only accepted as `private_mapping`; public and confidential evidence use distinct ACLs. Internal object keys and version IDs are not returned.
+- The framework-neutral handlers are in `tools/api/artifact_handlers.py`. The hosting HTTP layer still must authenticate JWTs, enforce request-size/rate limits, parse multipart data safely, and wire a configured private/versioned object-store client.
+
 ## Idempotency, errors, and amount encoding
 
 State-changing endpoints require `Idempotency-Key`; keys are scoped to tenant and operation, and a different payload with a reused key must return `idempotency_conflict`. Amounts and large block/index values are strings to avoid JavaScript integer precision loss. Cursor pagination is bounded to 100 records per page.
