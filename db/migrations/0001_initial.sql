@@ -250,8 +250,8 @@ BEGIN
         'migration_state_events', 'audit_events'
     ] LOOP
         EXECUTE format(
-            'CREATE TRIGGER %I_append_only BEFORE UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION reject_append_only_mutation()',
-            table_name, table_name
+            'CREATE TRIGGER %I BEFORE UPDATE OR DELETE ON %I FOR EACH ROW EXECUTE FUNCTION reject_append_only_mutation()',
+            table_name || '_append_only', table_name
         );
     END LOOP;
 END;
