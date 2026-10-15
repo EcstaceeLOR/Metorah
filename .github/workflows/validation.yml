@@ -32,6 +32,7 @@ jobs:
       - run: python -m unittest discover -s test -p test_release_policy.py -v
       - run: python -m unittest discover -s test -p test_enumeration.py -v
       - run: python -m unittest discover -s test -p test_bindings.py -v
+      - run: python -m unittest discover -s test -p test_freeze_evidence.py -v
       - run: cd local_model && python run_experiment.py
   js-workspace:
     runs-on: ubuntu-latest

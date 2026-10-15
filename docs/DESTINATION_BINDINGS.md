@@ -45,3 +45,8 @@ python -m unittest discover -s test -p test_bindings.py -v
 \`\`\`
 
 The supplied offline test data is synthetic. A real runtime adapter must pin every call to an authentically finalized block and independently verify the source contract's code and storage state; an indexer cannot self-certify beneficiary authority. Do not send real tokens to this contract.
+
+
+## Freeze checkpoint boundary (#23)
+
+After authorized source freeze, the ledger records a one-time observed cutoff block and emits an expanded SourceFrozen event. Read [FREEZE_FINALITY.md](FREEZE_FINALITY.md) for the strict untrusted receipt/state observer and independently authenticated finalized-block evidence still required. Source-reported block numbers and receipt strings cannot authorize production claims.
