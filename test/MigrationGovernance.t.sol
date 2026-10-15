@@ -146,4 +146,32 @@ contract MigrationGovernanceTest {
         require(token.balanceOf(address(settlement)) == 1000, "holder backing changed");
         require(settlement.remainingFundedLiability() == 1000, "liability changed");
     }
+
+    function testActivatedEvidenceCannotBeCancelledByGovernance() public {
+        bytes32 root = keccak256("activated-root");
+        uint64 activation = uint64(block.timestamp + 5 days);
+        bytes[] memory signatures = _signatures(
+            ledger.attestationDigest(root, MANIFEST, activation)
+        );
+        bytes memory proposeData = abi.encodeCall(
+            ledger.proposeEvidence, (root, MANIFEST, activation, signatures)
+        );
+        bytes32 proposeSalt = keccak256("propose-activated-root");
+        (, uint256 eta) = governance.schedule(proposeSalt, proposeData);
+        vm.warp(eta);
+        governance.execute(proposeSalt, proposeData);
+
+        vm.warp(activation);
+        ledger.activate();
+        bytes memory cancelData = abi.encodeCall(ledger.cancelEvidence, ());
+        bytes32 cancelSalt = keccak256("cancel-activated-root");
+        (, eta) = governance.schedule(cancelSalt, cancelData);
+        vm.warp(eta);
+        (bool ok,) = address(governance).call(
+            abi.encodeCall(governance.execute, (cancelSalt, cancelData))
+        );
+        require(!ok, "activated root was cancellable");
+        require(ledger.activated(), "activation reverted");
+        require(ledger.merkleRoot() == root, "activated root changed");
+    }
 }
