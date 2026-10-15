@@ -14,7 +14,7 @@
 | `.github/workflows/validation.yml` | CI workflow definition | Runs only after commit and permissions/toolchains are available |
 | `docs/` | Architecture, threat model, baseline audit | Historical audit reflects the original StateLift starter; not a completed security audit |
 
-**Important:** the Python Merkle commitment is SHA-256 with directional paths; the Solidity draft is Keccak-256 with sorted sibling hashing. Their proofs are **not interoperable**. The legacy domain separators (`statelift/poc-v1/*`, `STATELIFT_LEAF_V1`) intentionally remain unchanged to preserve existing test vectors; renaming display identifiers does not silently alter signed/hashing formats. A single canonical, versioned proof format is tracked in [issue #25](https://github.com/EcstaceeLOR/Metorah/issues/25).
+**Important:** the Python Merkle commitment is SHA-256 with directional paths; the Solidity draft is Keccak-256 with sorted sibling hashing. Their proofs are **not interoperable**. A separate [canonical V1 manifest and proof specification](docs/CANONICAL_MANIFEST_V1.md), with Python and Foundry parity tests, now exists under issue #25. **This does not retrofit the legacy claim ledger, activate claims, or verify a real source chain**; integration remains the next separately reviewed step. The legacy domain separators (`statelift/poc-v1/*`, `STATELIFT_LEAF_V1`) intentionally remain unchanged to preserve existing test vectors; renaming display identifiers does not silently alter signed/hashing formats. A single canonical, versioned proof format is tracked in [issue #25](https://github.com/EcstaceeLOR/Metorah/issues/25).
 
 ## Local reproducibility
 
