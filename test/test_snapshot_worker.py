@@ -1,15 +1,18 @@
 import unittest
+from hashlib import sha256
 
 from tools.orchestrator.snapshot_worker import (
     HolderRecord,
     RegistryCommitment,
     SnapshotError,
+    SnapshotRetryableError,
     VerifiedCheckpoint,
     VerifiedHolder,
     _validate_checkpoint,
     _validate_commitment,
     canonical_inventory_digest,
     partition_ranges,
+    verify_partition_records,
 )
 
 
@@ -73,6 +76,35 @@ class SnapshotWorkerTests(unittest.TestCase):
         account_changed = VerifiedHolder(0, b"z"*32, b"\x01", 5, b"p"*32)
         self.assertNotEqual(canonical_inventory_digest([base]), canonical_inventory_digest([amount_changed]))
         self.assertNotEqual(canonical_inventory_digest([base]), canonical_inventory_digest([account_changed]))
+
+
+    def test_partition_proof_must_match_exact_account_key_and_amount(self):
+        record = HolderRecord(0, b"a"*32, b"\\x01", 5, b"raw-proof")
+        valid = VerifiedHolder(0, b"a"*32, b"\\x01", 5, sha256(record.proof_bundle).digest())
+        self.assertEqual(verify_partition_records(checkpoint(), [record], 0, 1, lambda _cp, _r: valid), [valid])
+
+        wrong_amount = VerifiedHolder(0, b"a"*32, b"\\x01", 6, sha256(record.proof_bundle).digest())
+        with self.assertRaisesRegex(SnapshotError, "VERIFIED_VALUE_MISMATCH"):
+            verify_partition_records(checkpoint(), [record], 0, 1, lambda _cp, _r: wrong_amount)
+
+    def test_missing_or_duplicate_holder_proof_fails_closed(self):
+        record = HolderRecord(0, b"a"*32, b"\\x01", 5, b"raw-proof")
+        with self.assertRaisesRegex(SnapshotError, "STORAGE_PROOF_REJECTED"):
+            verify_partition_records(checkpoint(), [record], 0, 1, lambda _cp, _r: None)
+        duplicate = HolderRecord(1, b"a"*32, b"\\x02", 6, b"another-proof")
+        verifier = lambda _cp, r: VerifiedHolder(
+            r.source_index, r.source_account_id, r.storage_key, r.amount, sha256(r.proof_bundle).digest()
+        )
+        with self.assertRaisesRegex(SnapshotError, "DUPLICATE_SOURCE_ACCOUNT"):
+            verify_partition_records(checkpoint(), [record, duplicate], 0, 2, verifier)
+
+    def test_transient_verifier_failure_is_distinguishable_from_invalid_proof(self):
+        record = HolderRecord(0, b"a"*32, b"\\x01", 5, b"raw-proof")
+        def unavailable(_checkpoint, _record):
+            raise SnapshotRetryableError("VERIFIER_UNAVAILABLE")
+        with self.assertRaisesRegex(SnapshotRetryableError, "VERIFIER_UNAVAILABLE"):
+            verify_partition_records(checkpoint(), [record], 0, 1, unavailable)
+
 
 
 if __name__ == "__main__":
