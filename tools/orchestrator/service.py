@@ -120,16 +120,18 @@ class DurableOrchestrator:
             raise OrchestrationError(401, "unauthorized", "Actor type is not trusted.")
 
     @staticmethod
-    def _idempotency_begin(cursor: Any, tenant_id: str, operation: str, key: str, request_hash: bytes):
+    def _idempotency_begin(cursor: Any, tenant_id: str, actor_subject: str, operation: str, key: str, request_hash: bytes):
         if not isinstance(key, str) or len(key.strip()) < 8 or len(key) > 200:
             raise OrchestrationError(400, "invalid_request", "Idempotency key must contain 8–200 characters.")
         cursor.execute(
-            "SELECT request_hash, response_status, response_body, resource_id "
+            "SELECT request_hash, response_status, response_body, resource_id, actor_subject "
             "FROM idempotency_records WHERE tenant_id=%s AND operation=%s AND idempotency_key=%s FOR UPDATE",
             (tenant_id, operation, key),
         )
         saved = cursor.fetchone()
         if saved is not None:
+            if saved[4] != actor_subject:
+                raise OrchestrationError(404, "not_found", "Idempotent operation not found.")
             if bytes(saved[0]) != request_hash:
                 raise OrchestrationError(409, "idempotency_conflict", "Idempotency key was reused with a different request.")
             if saved[1] is None or saved[2] is None:
@@ -137,20 +139,22 @@ class DurableOrchestrator:
             return {"status": int(saved[1]), "body": _json_load(saved[2]), "resource_id": str(saved[3]) if saved[3] else None}
 
         cursor.execute(
-            "INSERT INTO idempotency_records (tenant_id, operation, idempotency_key, request_hash) "
-            "VALUES (%s,%s,%s,%s) ON CONFLICT (tenant_id, operation, idempotency_key) DO NOTHING RETURNING id",
-            (tenant_id, operation, key, request_hash),
+            "INSERT INTO idempotency_records (tenant_id, operation, actor_subject, idempotency_key, request_hash) "
+            "VALUES (%s,%s,%s,%s,%s) ON CONFLICT (tenant_id, operation, idempotency_key) DO NOTHING RETURNING id",
+            (tenant_id, operation, actor_subject, key, request_hash),
         )
         inserted = cursor.fetchone()
         if inserted is None:
             cursor.execute(
-                "SELECT request_hash, response_status, response_body, resource_id "
+                "SELECT request_hash, response_status, response_body, resource_id, actor_subject "
                 "FROM idempotency_records WHERE tenant_id=%s AND operation=%s AND idempotency_key=%s FOR UPDATE",
                 (tenant_id, operation, key),
             )
             saved = cursor.fetchone()
             if saved is None:
                 raise OrchestrationError(409, "operation_in_progress", "Idempotency record is concurrently being created.")
+            if saved[4] != actor_subject:
+                raise OrchestrationError(404, "not_found", "Idempotent operation not found.")
             if bytes(saved[0]) != request_hash:
                 raise OrchestrationError(409, "idempotency_conflict", "Idempotency key was reused with a different request.")
             if saved[1] is None or saved[2] is None:
@@ -195,7 +199,7 @@ class DurableOrchestrator:
                 "reason_code": reason_code, "gates": sorted(gates), "correlation_id": correlation_id,
             }
             request_hash = canonical_request_hash(fingerprint)
-            replay = self._idempotency_begin(cursor, actor.tenant_id, "migration.transition", idempotency_key, request_hash)
+            replay = self._idempotency_begin(cursor, actor.tenant_id, actor.subject, "migration.transition", idempotency_key, request_hash)
             if replay is not None:
                 self._close(connection, cursor)
                 return replay["body"]
@@ -254,8 +258,8 @@ class DurableOrchestrator:
         try:
             request = {"migration_id": migration_id, "job_kind": job_kind, "payload": payload}
             request_hash = canonical_request_hash(request)
-            operation = "job.enqueue:" + job_kind
-            replay = self._idempotency_begin(cursor, actor.tenant_id, operation, idempotency_key, request_hash)
+            operation = "job.enqueue"
+            replay = self._idempotency_begin(cursor, actor.tenant_id, actor.subject, operation, idempotency_key, request_hash)
             if replay is not None:
                 self._close(connection, cursor)
                 return replay["body"]
@@ -470,7 +474,7 @@ class DurableOrchestrator:
         try:
             cursor.execute(
                 "UPDATE outbox_delivery SET state='failed', available_at=now()+make_interval(secs => "
-                "LEAST(3600, GREATEST(1, power(2, LEAST(attempt_count, 12))::integer)), "
+                "LEAST(3600, GREATEST(1, power(2, LEAST(attempt_count, 12))::integer))), "
                 "worker_id=NULL, lease_until=NULL, last_error=%s, updated_at=now() "
                 "WHERE event_id=%s AND state='leased' AND worker_id=%s AND lease_until >= now()",
                 (error[:1000], event_id, worker_id),
