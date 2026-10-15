@@ -209,7 +209,7 @@ FOR EACH ROW EXECUTE FUNCTION record_job_outbox_event();
 CREATE TRIGGER jobs_outbox_state AFTER UPDATE OF state ON jobs
 FOR EACH ROW EXECUTE FUNCTION record_job_outbox_event();
 
-CREATE FUNCTION reject_append_only_mutation() RETURNS trigger
+CREATE OR REPLACE FUNCTION reject_append_only_mutation() RETURNS trigger
 LANGUAGE plpgsql AS $$
 BEGIN
     RAISE EXCEPTION 'table % is append-only; % is forbidden', TG_TABLE_NAME, TG_OP
