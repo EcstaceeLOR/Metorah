@@ -26,9 +26,24 @@ mod metorah_source_ledger {
         SupplyCapExceeded,
         ArithmeticOverflow,
         HolderRegistryFull,
+        InvalidBeneficiary,
+        NoActiveEntitlement,
+        InvalidBindingNonce,
+        BindingNonceExhausted,
+        UnboundActiveHolders,
     }
 
     pub type Result<T> = core::result::Result<T, LedgerError>;
+
+    /// Authorized by the source AccountId that dispatched the ink! message.
+    /// The target chain, target contract and migration ID are immutable
+    /// deployment-wide domain fields, not arbitrarily caller-selected values.
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    #[ink::scale_derive(Encode, Decode, TypeInfo)]
+    pub struct BindingRecord {
+        pub beneficiary: [u8; 20],
+        pub nonce: u64,
+    }
 
     /// The complete historical set of funded holders can be read by dense index.
     /// A zero balance does not remove a holder, preventing holes or index reuse.
@@ -45,6 +60,11 @@ mod metorah_source_ledger {
         slots_plus_one: Mapping<AccountId, u32>,
         holder_count: u32,
         active_holder_count: u32,
+        unbound_active_holders: u32,
+        destination_chain_id: u64,
+        destination_contract: [u8; 20],
+        migration_id: [u8; 32],
+        bindings: Mapping<AccountId, BindingRecord>,
     }
 
     #[ink(event)]
@@ -79,14 +99,37 @@ mod metorah_source_ledger {
         active_holder_count: u32,
     }
 
+    #[ink(event)]
+    pub struct BeneficiaryRegistered {
+        #[ink(topic)]
+        source_owner: AccountId,
+        source_contract: AccountId,
+        destination_chain_id: u64,
+        destination_contract: [u8; 20],
+        migration_id: [u8; 32],
+        previous_beneficiary: [u8; 20],
+        beneficiary: [u8; 20],
+        nonce: u64,
+    }
+
     impl MetorahSourceLedger {
         /// No pre-funded or hidden allocations are created by deployment.
         /// The asset ID is application-defined, NOT a chain-authenticated claim.
         #[ink(constructor)]
-        pub fn new(asset_id: [u8; 32], decimals: u8, max_supply: Balance) -> Self {
+        pub fn new(
+            asset_id: [u8; 32],
+            decimals: u8,
+            max_supply: Balance,
+            destination_chain_id: u64,
+            destination_contract: [u8; 20],
+            migration_id: [u8; 32],
+        ) -> Self {
             assert!(asset_id != [0u8; 32], "asset ID cannot be all zero");
             assert!(decimals <= 18, "unsupported decimal precision");
             assert!(max_supply > 0, "supply cap must be positive");
+            assert!(destination_chain_id != 0, "destination chain ID cannot be zero");
+            assert!(destination_contract != [0u8; 20], "destination contract cannot be zero");
+            assert!(migration_id != [0u8; 32], "migration ID cannot be zero");
             Self {
                 owner: Self::env().caller(),
                 frozen: false,
@@ -99,6 +142,11 @@ mod metorah_source_ledger {
                 slots_plus_one: Mapping::default(),
                 holder_count: 0,
                 active_holder_count: 0,
+                unbound_active_holders: 0,
+                destination_chain_id,
+                destination_contract,
+                migration_id,
+                bindings: Mapping::default(),
             }
         }
 
@@ -140,6 +188,82 @@ mod metorah_source_ledger {
         #[ink(message)]
         pub fn active_holder_count(&self) -> u32 {
             self.active_holder_count
+        }
+
+        /// Number of funded holders that have not registered a destination.
+        /// A freeze with outstanding unbound rights is rejected atomically.
+        #[ink(message)]
+        pub fn unbound_active_holders(&self) -> u32 {
+            self.unbound_active_holders
+        }
+
+        /// Immutable migration-specific replay domain. This does not assert
+        /// whether the current WASM runtime is a trusted chain.
+        #[ink(message)]
+        pub fn destination_domain(&self) -> (u64, [u8; 20], [u8; 32]) {
+            (self.destination_chain_id, self.destination_contract, self.migration_id)
+        }
+
+        #[ink(message)]
+        pub fn binding_of(&self, source_owner: AccountId) -> Option<BindingRecord> {
+            self.bindings.get(source_owner)
+        }
+
+        /// Bind a beneficiary to the *transaction caller*, NEVER to a
+        /// caller-supplied source-account argument or administrator override.
+        /// Normal Substrate signed extrinsic authentication of env().caller()
+        /// must be verified through the actual source chain (#18, #23).
+        /// expected_nonce enforces strict increasing 1..u64::MAX versions.
+        #[ink(message)]
+        pub fn register_beneficiary(&mut self, beneficiary: [u8; 20], expected_nonce: u64) -> Result<u64> {
+            self.ensure_open()?;
+            if beneficiary == [0u8; 20] {
+                return Err(LedgerError::InvalidBeneficiary);
+            }
+            let source_owner = self.env().caller();
+            Self::ensure_account(&source_owner)?;
+            if self.balance_of_ref(&source_owner) == 0 {
+                return Err(LedgerError::NoActiveEntitlement);
+            }
+            let old = self.bindings.get(&source_owner);
+            let prior = old.as_ref().map(|b: &BindingRecord| b.nonce).unwrap_or(0);
+            let next = prior.checked_add(1).ok_or(LedgerError::BindingNonceExhausted)?;
+            if expected_nonce != next {
+                return Err(LedgerError::InvalidBindingNonce);
+            }
+            let unbound_next = if old.is_none() {
+                self.unbound_active_holders.checked_sub(1)
+                    .ok_or(LedgerError::ArithmeticOverflow)?
+            } else {
+                self.unbound_active_holders
+            };
+            let previous_beneficiary = old.map(|b: BindingRecord| b.beneficiary).unwrap_or([0u8; 20]);
+            let next_binding = BindingRecord { beneficiary, nonce: next };
+            self.bindings.insert(&source_owner, &next_binding);
+            self.unbound_active_holders = unbound_next;
+            self.env().emit_event(BeneficiaryRegistered {
+                source_owner,
+                source_contract: self.env().account_id(),
+                destination_chain_id: self.destination_chain_id,
+                destination_contract: self.destination_contract,
+                migration_id: self.migration_id,
+                previous_beneficiary,
+                beneficiary,
+                nonce: next,
+            });
+            Ok(next)
+        }
+
+        #[ink(message)]
+        pub fn binding_at(&self, index: u32) -> Option<(AccountId, Balance, Option<BindingRecord>)> {
+            if index >= self.holder_count {
+                return None;
+            }
+            self.holders.get(index).map(|owner: AccountId| {
+                let balance = self.balance_of_ref(&owner);
+                let binding = self.bindings.get(&owner);
+                (owner, balance, binding)
+            })
         }
 
         #[ink(message)]
@@ -286,8 +410,15 @@ mod metorah_source_ledger {
             } else {
                 self.active_holder_count
             };
+            let next_unbound = if current == 0 && self.bindings.get(&to).is_none() {
+                self.unbound_active_holders.checked_add(1)
+                    .ok_or(LedgerError::ArithmeticOverflow)?
+            } else {
+                self.unbound_active_holders
+            };
             self.register_holder(&to);
             self.balances.insert(&to, &next_balance);
+            self.unbound_active_holders = next_unbound;
             self.active_holder_count = next_active;
             self.total_supply = next_supply;
             self.env().emit_event(Issued { to, amount });
@@ -328,9 +459,19 @@ mod metorah_source_ledger {
             } else {
                 after_outflow
             };
+            let mut next_unbound = self.unbound_active_holders;
+            if next_from == 0 && self.bindings.get(&from).is_none() {
+                next_unbound = next_unbound.checked_sub(1)
+                    .ok_or(LedgerError::ArithmeticOverflow)?;
+            }
+            if to_balance == 0 && self.bindings.get(&to).is_none() {
+                next_unbound = next_unbound.checked_add(1)
+                    .ok_or(LedgerError::ArithmeticOverflow)?;
+            }
             self.register_holder(&to);
             self.balances.insert(&from, &next_from);
             self.balances.insert(&to, &next_to);
+            self.unbound_active_holders = next_unbound;
             self.active_holder_count = next_active;
             self.env().emit_event(Transferred { from, to, amount });
             Ok(())
@@ -357,8 +498,15 @@ mod metorah_source_ledger {
             } else {
                 self.active_holder_count
             };
+            let next_unbound = if next_balance == 0 && self.bindings.get(&from).is_none() {
+                self.unbound_active_holders.checked_sub(1)
+                    .ok_or(LedgerError::ArithmeticOverflow)?
+            } else {
+                self.unbound_active_holders
+            };
             self.balances.insert(&from, &next_balance);
             self.total_supply = next_supply;
+            self.unbound_active_holders = next_unbound;
             self.active_holder_count = next_active;
             self.env().emit_event(Burned { from, amount });
             Ok(())
@@ -372,6 +520,12 @@ mod metorah_source_ledger {
             self.ensure_admin()?;
             if self.frozen {
                 return Err(LedgerError::AlreadyFrozen);
+            }
+            // Never strand funded users behind an immutable cutover.
+            // Destination activation ALSO requires finalized on-chain proof
+            // of every binding, outside this contract.
+            if self.unbound_active_holders != 0 {
+                return Err(LedgerError::UnboundActiveHolders);
             }
             self.frozen = true;
             self.env().emit_event(SourceFrozen {
@@ -396,7 +550,7 @@ mod metorah_source_ledger {
             test::set_caller::<ink::env::DefaultEnvironment>(who);
         }
         fn ledger() -> MetorahSourceLedger {
-            MetorahSourceLedger::new([7; 32], 12, 1_000)
+            MetorahSourceLedger::new([7; 32], 12, 1_000, 31_337, [9; 20], [11; 32])
         }
         fn seeded() -> MetorahSourceLedger {
             let a = accounts();
@@ -404,6 +558,10 @@ mod metorah_source_ledger {
             let mut l = ledger();
             assert_eq!(l.mint(a.alice, 60), Ok(()));
             assert_eq!(l.mint(a.bob, 40), Ok(()));
+            assert_eq!(l.register_beneficiary([1; 20], 1), Ok(1));
+            caller(a.bob);
+            assert_eq!(l.register_beneficiary([2; 20], 1), Ok(1));
+            caller(a.alice);
             l
         }
         #[ink::test]
@@ -421,17 +579,17 @@ mod metorah_source_ledger {
         #[ink::test]
         #[should_panic(expected = "asset ID cannot be all zero")]
         fn invalid_asset_id_rejected() {
-            MetorahSourceLedger::new([0; 32], 12, 100);
+            MetorahSourceLedger::new([0; 32], 12, 100, 31_337, [9; 20], [11; 32]);
         }
         #[ink::test]
         #[should_panic(expected = "unsupported decimal precision")]
         fn excessive_decimals_rejected() {
-            MetorahSourceLedger::new([1; 32], 19, 100);
+            MetorahSourceLedger::new([1; 32], 19, 100, 31_337, [9; 20], [11; 32]);
         }
         #[ink::test]
         #[should_panic(expected = "supply cap must be positive")]
         fn invalid_cap_rejected() {
-            MetorahSourceLedger::new([1; 32], 12, 0);
+            MetorahSourceLedger::new([1; 32], 12, 0, 31_337, [9; 20], [11; 32]);
         }
         #[ink::test]
         fn unauthorized_mint_fails_without_mutation() {
@@ -467,7 +625,7 @@ mod metorah_source_ledger {
         #[ink::test]
         fn overflow_never_partially_mutates() {
             let a = accounts();
-            let mut l = MetorahSourceLedger::new([1; 32], 18, u128::MAX);
+            let mut l = MetorahSourceLedger::new([1; 32], 18, u128::MAX, 31_337, [9; 20], [11; 32]);
             assert_eq!(l.mint(a.alice, u128::MAX), Ok(()));
             assert_eq!(l.mint(a.bob, 1), Err(LedgerError::ArithmeticOverflow));
             assert_eq!(l.total_supply(), u128::MAX);
@@ -683,6 +841,9 @@ mod metorah_source_ledger {
             for n in 1u8..=130u8 {
                 let address = AccountId::from([n; 32]);
                 assert_eq!(l.mint(address, 1), Ok(()));
+                caller(address);
+                assert_eq!(l.register_beneficiary([n; 20], 1), Ok(1));
+                caller(a.alice);
             }
             assert_eq!(l.holder_count(), 130);
             assert_eq!(l.active_holder_count(), 130);
