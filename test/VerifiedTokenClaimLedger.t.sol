@@ -217,4 +217,15 @@ contract VerifiedTokenClaimLedgerTest {
         ledger.claim(7, SOURCE, 400, proof);
         assert(ledger.claimed(7));
     }
+
+    function invariant_claimAccountingNeverExceedsAllocation() public view {
+        assert(ledger.totalClaimed() <= ledger.totalAllocation());
+        assert(settlement.totalSettled() <= settlement.totalFunded());
+        assert(settlement.totalSettled() <= settlement.allocationCap());
+    }
+
+    function invariant_claimLedgerAndEscrowSettlementStayInSync() public view {
+        assert(ledger.totalClaimed() == settlement.totalSettled());
+        assert(settlement.totalSettled() <= settlement.totalFunded());
+    }
 }
