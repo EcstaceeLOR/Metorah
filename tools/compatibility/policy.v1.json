@@ -1,0 +1,34 @@
+{
+  "policy_id": "metorah-capability-policy-v1",
+  "release_phase": "first-certified-fungible-pilot",
+  "source_vm": "wasm",
+  "destination_vm": "evm",
+  "supported_asset_kind": "fungible_entitlement",
+  "required_features": ["fungible_balances", "destination_bindings"],
+  "required_declarations": [
+    "supports_irreversible_freeze",
+    "enumerates_complete_holder_set",
+    "exposes_per_holder_balances",
+    "exposes_verifiable_total_supply",
+    "source_authorizes_beneficiary_bindings",
+    "pins_state_to_finalized_block",
+    "exposes_verifiable_storage_evidence"
+  ],
+  "unsupported_state_examples": [
+    "nft_721", "nft_1155", "governance_votes", "roles", "allowances",
+    "vesting", "staking", "delegation", "rebasing", "fee_on_transfer",
+    "private_balances", "unindexed_mapping", "arbitrary_storage"
+  ],
+  "requirements_for_real_activation": [
+    "organizer_approved_runtime_verified",
+    "real_source_freeze_finalized",
+    "source_trie_proofs_verified_at_finalized_root",
+    "entire_holder_set_reconciled",
+    "source_authorized_beneficiaries_verified",
+    "canonical_manifest_verified",
+    "source_retirement_proven",
+    "destination_asset_backing_verified",
+    "governed_activation_review_completed"
+  ],
+  "warning": "This descriptor is a design screen only. No self-reported fields authorize source freeze, activation, actual asset settlement, or a 'verified' UI badge."
+}
