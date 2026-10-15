@@ -23,4 +23,5 @@ jobs:
           python-version: '3.13'
       - run: python -m pip install -r local_model/requirements.txt
       - run: python -m unittest discover -s local_model -v
+      - run: python -m unittest discover -s test -p test_compatibility.py -v
       - run: cd local_model && python run_experiment.py
