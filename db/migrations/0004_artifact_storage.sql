@@ -23,7 +23,7 @@ CREATE TABLE artifact_objects (
         'application/zip','text/plain','text/csv'
     )),
     classification text NOT NULL REFERENCES artifact_retention_policies(classification) ON DELETE RESTRICT,
-    storage_key text NOT NULL UNIQUE CHECK (storage_key !~ '(^/|\.\.|\\\\)'),
+    storage_key text NOT NULL UNIQUE CHECK (storage_key NOT LIKE '/%' AND position('..' in storage_key) = 0 AND position(chr(92) in storage_key) = 0),
     object_version text NOT NULL CHECK (length(trim(object_version)) > 0),
     retention_until timestamptz NOT NULL,
     retention_policy_version text NOT NULL,
