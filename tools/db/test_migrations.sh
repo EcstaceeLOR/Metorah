@@ -28,6 +28,8 @@ expect_failure "audit event DELETE is forbidden" \
   "${PSQL[@]}" -c "DELETE FROM audit_events WHERE id = 1"
 expect_failure "verified evidence UPDATE is forbidden" \
   "${PSQL[@]}" -c "UPDATE verified_evidence SET outcome = 'rejected' WHERE id = '00000000-0000-4000-8000-000000000008'"
+expect_failure "migration status change requires actor/reason context" \
+  "${PSQL[@]}" -c "UPDATE migrations SET status = 'review' WHERE id = '00000000-0000-4000-8000-000000000006'"
 expect_failure "tenant slug uniqueness" \
   "${PSQL[@]}" -c "INSERT INTO tenants (slug, display_name) VALUES ('acme-team', 'Duplicate')"
 expect_failure "cross-tenant foreign key is enforced" \
