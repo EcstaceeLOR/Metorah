@@ -111,7 +111,8 @@ contract MetorahManifestGoldenV1Test {
         uint256 firstIndex;
         uint256 lastIndex = n - 1;
         for (uint256 d; d < depth; ++d) {
-            proofFirst[d] = layer[firstIndex ^ 1 < size ? firstIndex ^ 1 : firstIndex];
+            uint256 firstSibling = firstIndex ^ 1;
+            proofFirst[d] = layer[firstSibling < size ? firstSibling : firstIndex];
             uint256 pair = lastIndex ^ 1;
             proofLast[d] = layer[pair < size ? pair : lastIndex];
             uint256 next = size / 2 + size % 2;

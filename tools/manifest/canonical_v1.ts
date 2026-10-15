@@ -153,7 +153,8 @@ export function canonical(h: ManifestHeader, entries: Entitlement[]): HashCase {
       ensure(Number.isInteger(index) && index >= 0 && index < leaves.length, 'BAD_PROOF_INDEX');
       const proof: string[] = [];
       for (const layer of layers.slice(0, -1)) {
-        proof.push(outHex(layer[index ^ 1] ?? layer[index]));
+        const sibling = index % 2 === 0 ? index + 1 : index - 1;
+        proof.push(outHex(layer[sibling] ?? layer[index]));
         index = Math.floor(index / 2);
       }
       return proof;
@@ -174,7 +175,8 @@ export function verifyProof(h: ManifestHeader, entry: Entitlement, proof: string
     count = h.active_holder_count;
     for (const s of proof) {
       const sib = hexb(s, 32);
-      if ((ix ^ 1) >= count) ensure(sib.equals(node), 'INVALID_DUPLICATE_LAST');
+      const siblingIndex = ix % 2 === 0 ? ix + 1 : ix - 1;
+      if (siblingIndex >= count) ensure(sib.equals(node), 'INVALID_DUPLICATE_LAST');
       node = (ix & 1) ? hashNode(sib, node) : hashNode(node, sib);
       ix = Math.floor(ix / 2);
       count = Math.floor((count + 1) / 2);
