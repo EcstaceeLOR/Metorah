@@ -207,6 +207,39 @@ CREATE TABLE migration_state_events (
     details jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 
+CREATE FUNCTION record_migration_status_transition() RETURNS trigger
+LANGUAGE plpgsql AS $$
+DECLARE
+    actor_type_value text;
+    actor_id_value text;
+    reason_value text;
+    correlation_value text;
+BEGIN
+    IF NEW.status IS DISTINCT FROM OLD.status THEN
+        actor_type_value := current_setting('metorah.actor_type', true);
+        actor_id_value := current_setting('metorah.actor_id', true);
+        reason_value := current_setting('metorah.reason_code', true);
+        correlation_value := current_setting('metorah.correlation_id', true);
+        IF actor_type_value IS NULL OR actor_type_value NOT IN ('user', 'service', 'governance', 'chain')
+            OR actor_id_value IS NULL OR length(trim(actor_id_value)) = 0
+            OR reason_value IS NULL OR length(trim(reason_value)) = 0 THEN
+            RAISE EXCEPTION 'migration status changes require transaction-local actor and reason context'
+                USING ERRCODE = '42501';
+        END IF;
+        INSERT INTO migration_state_events (
+            migration_id, from_state, to_state, actor_type, actor_id, reason_code,
+            correlation_id, details
+        ) VALUES (
+            NEW.id, OLD.status, NEW.status, actor_type_value, actor_id_value, reason_value,
+            NULLIF(correlation_value, '')::uuid,
+            jsonb_build_object('migration_version', NEW.version)
+        );
+        NEW.updated_at := now();
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
 CREATE TABLE audit_events (
     id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     tenant_id uuid NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
@@ -222,6 +255,10 @@ CREATE TABLE audit_events (
     payload jsonb NOT NULL DEFAULT '{}'::jsonb,
     UNIQUE (tenant_id, event_hash)
 );
+
+CREATE TRIGGER migrations_status_audit
+AFTER UPDATE OF status ON migrations
+FOR EACH ROW EXECUTE FUNCTION record_migration_status_transition();
 
 CREATE INDEX migrations_tenant_status_idx ON migrations (tenant_id, status, updated_at DESC);
 CREATE INDEX evidence_migration_kind_idx ON verified_evidence (migration_id, evidence_kind, verified_at DESC);
