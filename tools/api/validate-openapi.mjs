@@ -15,7 +15,7 @@ function resolvePointer(ref) {
       return value[key];
     }, spec);
 }
-function visit(value) {
+function parameterName(parameter) {\n  return parameter.name ?? (parameter.$ref ? resolvePointer(parameter.$ref).name : undefined);\n}\nfunction visit(value) {
   if (!value || typeof value !== "object") return;
   if (typeof value.$ref === "string") resolvePointer(value.$ref);
   for (const child of Object.values(value)) visit(child);
@@ -25,7 +25,7 @@ visit(spec);
 const operationIds = new Set();
 let operationCount = 0;
 for (const [path, item] of Object.entries(spec.paths)) {
-  const pathParams = new Set((item.parameters ?? []).filter((p) => p.name).map((p) => p.name));
+  const pathParams = new Set((item.parameters ?? []).map(parameterName).filter(Boolean));
   for (const [method, operation] of Object.entries(item)) {
     if (method === "parameters" || method.startsWith("x-")) continue;
     operationCount++;
@@ -42,7 +42,7 @@ for (const [path, item] of Object.entries(spec.paths)) {
     }
     for (const name of path.matchAll(/\{([^}]+)\}/g)) {
       const parameter = name[1];
-      const operationParams = (operation.parameters ?? []).filter((p) => p.name).map((p) => p.name);
+      const operationParams = (operation.parameters ?? []).map(parameterName).filter(Boolean);
       assert.ok(pathParams.has(parameter) || operationParams.includes(parameter),
         `Path parameter ${parameter} missing for ${operation.operationId}`);
     }
