@@ -48,6 +48,7 @@ class FakeS3:
             "Metadata": item["Metadata"],
             "ContentLength": item["ContentLength"],
             "VersionId": item["VersionId"],
+            "ContentType": item["ContentType"],
         }
 
     def delete_object(self, **kwargs):
@@ -193,7 +194,7 @@ class ArtifactStorageTests(unittest.TestCase):
         digest = sha256(self.content).hexdigest()
         version = backend.put_if_absent("tenant/key", self.content, "application/json", digest, "public_evidence")
         content, metadata = backend.get("tenant/key", version)
-        verify_artifact_content(content, digest, len(self.content), metadata, expected_version=version)
+        verify_artifact_content(content, digest, len(self.content), metadata, expected_version=version, expected_classification="public_evidence", expected_media_type="application/json")
         backend.delete("tenant/key", version)
         self.assertNotIn("tenant/key", client.objects)
 
