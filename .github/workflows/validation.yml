@@ -34,6 +34,7 @@ jobs:
       - run: python -m unittest discover -s test -p test_bindings.py -v
       - run: python -m unittest discover -s test -p test_freeze_evidence.py -v
       - run: python -m unittest discover -s test -p test_source_fixture_runner.py -v
+      - run: python -m unittest discover -s test -p test_manifest_v1.py -v
       - run: cd local_model && python run_experiment.py
   js-workspace:
     runs-on: ubuntu-latest
