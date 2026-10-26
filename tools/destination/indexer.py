@@ -180,8 +180,8 @@ class DestinationProjection:
 
 
 class DestinationIndexer:
-    def __init__(self, rpc: Any, config: DestinationConfig, projection: DestinationProjection):
-        self.rpc, self.config, self.projection = rpc, config, projection
+    def __init__(self, rpc: Any, config: DestinationConfig, projection: DestinationProjection, store: Any = None):
+        self.rpc, self.config, self.projection, self.store = rpc, config, projection, store
 
     def scan(self, from_block: int = 0) -> dict:
         if hex_int(self.rpc.call("eth_chainId", [])) != self.config.chain_id:
@@ -241,5 +241,8 @@ class DestinationIndexer:
         tip = self.rpc.call("eth_getBlockByNumber", [hex(stop), False])
         if tip is None or normalize_hash(tip["hash"]) != blocks[-1][1]:
             raise FinalityPending("reorg_during_scan")
-        self.projection.replace_from(start, blocks, events)
+        if self.store is not None:
+            self.projection = self.store.replace_from(start, blocks, events)
+        else:
+            self.projection.replace_from(start, blocks, events)
         return {"cursor": self.projection.cursor, "indexed": len(events), "pending": stop < safe_head}
