@@ -1,4 +1,7 @@
 import unittest
+import tempfile
+from pathlib import Path
+from tools.destination.persistence import SQLiteProjectionStore
 from tools.destination.indexer import (
     Broadcaster, DestinationConfig, DestinationError, DestinationIndexer,
     DestinationProjection, FinalityPending, IndexedEvent,
@@ -124,6 +127,26 @@ class DestinationTests(unittest.TestCase):
         with self.assertRaisesRegex(FinalityPending, "reorg_during_scan"):
             DestinationIndexer(self.rpc, self.config, self.projection).scan()
         self.assertEqual(self.projection.cursor, -1)
+
+    def test_sqlite_cursor_survives_restart_and_reorg_rewrites_events(self):
+        with tempfile.TemporaryDirectory() as temp:
+            store = SQLiteProjectionStore(str(Path(temp) / "destination.db"), 1)
+            self.rpc.logs = [{
+                "blockNumber": "0x2", "blockHash": h(102), "transactionHash": h(60),
+                "logIndex": "0x0", "address": LEDGER, "topics": [TOPIC], "data": "0x",
+            }]
+            indexer = DestinationIndexer(self.rpc, self.config, store.load(), store)
+            self.assertEqual(indexer.scan()["cursor"], 4)
+            restored = store.load()
+            self.assertEqual(restored.cursor, 4)
+            self.assertEqual(len(restored.events), 1)
+            self.rpc.blocks[2] = {"hash": h(999), "parentHash": h(101)}
+            self.rpc.blocks[3] = {"hash": h(1000), "parentHash": h(999)}
+            self.rpc.blocks[4] = {"hash": h(1001), "parentHash": h(1000)}
+            self.rpc.logs = []
+            indexer = DestinationIndexer(self.rpc, self.config, store.load(), store)
+            indexer.scan()
+            self.assertEqual(len(store.load().events), 0)
 
     def test_reconciliation_rejects_duplicate_settlement_events(self):
         e = IndexedEvent(1, 2, h(102), h(60), 0, LEDGER, TOPIC, (TOPIC,), "0x")
