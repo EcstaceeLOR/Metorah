@@ -9,6 +9,7 @@ apply_and_smoke() {
   "${PSQL[@]}" -f "$ROOT/db/migrations/0001_initial.sql"
   "${PSQL[@]}" -f "$ROOT/db/migrations/0002_durable_orchestrator.sql"
   "${PSQL[@]}" -f "$ROOT/db/migrations/0003_resumable_snapshots.sql"
+  "${PSQL[@]}" -f "$ROOT/db/migrations/0004_artifact_storage.sql"
   "${PSQL[@]}" -f "$ROOT/db/tests/0001_smoke.sql"
 }
 
@@ -50,6 +51,20 @@ expect_failure "snapshot reconciliation UPDATE is forbidden" \
   "${PSQL[@]}" -c "UPDATE snapshot_reconciliations SET outcome = 'failed' WHERE run_id = '00000000-0000-4000-8000-000000000011'"
 expect_failure "reconciliation record is required before snapshot completion" \
   "${PSQL[@]}" -c "UPDATE snapshot_runs SET status = 'reconciled', processed_holder_count = 1, recombined_digest = decode(repeat('88', 32), 'hex') WHERE id = '00000000-0000-4000-8000-000000000012'"
+expect_failure "artifact storage key must match its digest" \
+  "${PSQL[@]}" -c "INSERT INTO artifact_objects (id,tenant_id,content_sha256,content_size,media_type,classification,storage_key,object_version,retention_until,retention_policy_version,created_by) VALUES ('00000000-0000-4000-8000-000000000023','00000000-0000-4000-8000-000000000001',decode(repeat('cc',32),'hex'),12,'application/json','public_evidence','tenants/00000000-0000-4000-8000-000000000001/public-evidence/sha256/bb/' || repeat('bb',32),'test-version-3',now()+interval '30 days','retention-v1','operator@example.test')"
+expect_failure "artifact object metadata is immutable" \
+  "${PSQL[@]}" -c "UPDATE artifact_objects SET content_size = 99 WHERE id = '00000000-0000-4000-8000-000000000021'"
+expect_failure "account mappings cannot use public evidence classification" \
+  "${PSQL[@]}" -c "INSERT INTO migration_artifacts (tenant_id, migration_id, artifact_object_id, artifact_kind, revision, uploaded_by) VALUES ('00000000-0000-4000-8000-000000000001','00000000-0000-4000-8000-000000000006','00000000-0000-4000-8000-000000000022','account_mapping',2,'operator@example.test')"
+expect_failure "legal hold requires a matching retention event" \
+  "${PSQL[@]}" -c "UPDATE artifact_lifecycle SET legal_hold = true, updated_by = 'unlogged-actor' WHERE artifact_object_id = '00000000-0000-4000-8000-000000000021'"
+expect_failure "artifact retention cannot be bypassed" \
+  "${PSQL[@]}" -c "UPDATE artifact_lifecycle SET status = 'expired', updated_by = 'retention-worker' WHERE artifact_object_id = '00000000-0000-4000-8000-000000000021'"
+expect_failure "artifact access history is append-only" \
+  "${PSQL[@]}" -c "UPDATE artifact_access_events SET outcome = 'denied' WHERE action = 'uploaded'"
+expect_failure "retention history is append-only" \
+  "${PSQL[@]}" -c "DELETE FROM artifact_retention_events WHERE action = 'legal_hold_added'"
 expect_failure "idempotency key uniqueness is enforced" \
   "${PSQL[@]}" -c "INSERT INTO idempotency_records (tenant_id, operation, actor_subject, idempotency_key, request_hash) VALUES ('00000000-0000-4000-8000-000000000001', 'migration.transition', 'user-operator', 'transition-v1-key', decode(repeat('cc', 32), 'hex'))"
 expect_failure "tenant slug uniqueness" \
@@ -57,6 +72,7 @@ expect_failure "tenant slug uniqueness" \
 expect_failure "cross-tenant foreign key is enforced" \
   "${PSQL[@]}" -c "INSERT INTO tenant_memberships (tenant_id, user_id, role) VALUES ('ffffffff-ffff-4fff-8fff-ffffffffffff', '00000000-0000-4000-8000-000000000002', 'viewer')"
 
+"${PSQL[@]}" -f "$ROOT/db/migrations/0004_rollback.sql"
 "${PSQL[@]}" -f "$ROOT/db/migrations/0003_rollback.sql"
 "${PSQL[@]}" -f "$ROOT/db/migrations/0002_rollback.sql"
 "${PSQL[@]}" -f "$ROOT/db/migrations/0001_rollback.sql"

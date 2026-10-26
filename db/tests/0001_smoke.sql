@@ -186,6 +186,45 @@ UPDATE migrations SET status = 'review', version = version + 1
 WHERE id = '00000000-0000-4000-8000-000000000006';
 COMMIT;
 
+INSERT INTO artifact_objects (
+ id, tenant_id, content_sha256, content_size, media_type, classification, storage_key, object_version,
+ retention_until, retention_policy_version, created_by
+) VALUES (
+ '00000000-0000-4000-8000-000000000021',
+ '00000000-0000-4000-8000-000000000001',
+ decode(repeat('aa', 32), 'hex'), 42, 'application/json', 'private_mapping',
+ 'tenants/00000000-0000-4000-8000-000000000001/private-mapping/sha256/aa/' || repeat('aa', 32),
+ 'test-version-1', now() + interval '29 days', 'privacy-retention-v1', 'privacy-admin'
+);
+INSERT INTO migration_artifacts (tenant_id, migration_id, artifact_object_id, artifact_kind, revision, uploaded_by)
+VALUES ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000006',
+ '00000000-0000-4000-8000-000000000021', 'account_mapping', 1, 'privacy-admin');
+INSERT INTO artifact_access_events (tenant_id, migration_id, artifact_object_id, actor_subject, action, outcome, details)
+VALUES ('00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000006',
+ '00000000-0000-4000-8000-000000000021', 'privacy-admin', 'uploaded', 'success',
+ '{"kind":"account_mapping","classification":"private_mapping"}'::jsonb);
+INSERT INTO artifact_retention_events (artifact_object_id, tenant_id, action, actor_subject, reason_code)
+VALUES ('00000000-0000-4000-8000-000000000021', '00000000-0000-4000-8000-000000000001',
+ 'legal_hold_added', 'privacy-admin', 'active-review');
+UPDATE artifact_lifecycle SET legal_hold=true, updated_by='privacy-admin'
+WHERE artifact_object_id='00000000-0000-4000-8000-000000000021';
+INSERT INTO artifact_retention_events (artifact_object_id, tenant_id, action, actor_subject, reason_code)
+VALUES ('00000000-0000-4000-8000-000000000021', '00000000-0000-4000-8000-000000000001',
+ 'legal_hold_released', 'privacy-admin', 'review-complete');
+UPDATE artifact_lifecycle SET legal_hold=false, updated_by='privacy-admin'
+WHERE artifact_object_id='00000000-0000-4000-8000-000000000021';
+
+INSERT INTO artifact_objects (
+ id, tenant_id, content_sha256, content_size, media_type, classification, storage_key, object_version,
+ retention_until, retention_policy_version, created_by
+) VALUES (
+ '00000000-0000-4000-8000-000000000022',
+ '00000000-0000-4000-8000-000000000001',
+ decode(repeat('bb', 32), 'hex'), 12, 'application/json', 'public_evidence',
+ 'tenants/00000000-0000-4000-8000-000000000001/public-evidence/sha256/bb/' || repeat('bb', 32),
+ 'test-version-2', now() + interval '30 days', 'retention-v1', 'operator@example.test'
+);
+
 DO $$
 BEGIN
     IF (SELECT count(*) FROM migrations WHERE status = 'review' AND version = 5) <> 1 THEN RAISE EXCEPTION 'migration status transition missing'; END IF;
@@ -199,5 +238,9 @@ BEGIN
     IF (SELECT count(*) FROM idempotency_records WHERE operation = 'migration.transition') <> 1 THEN RAISE EXCEPTION 'idempotency record missing'; END IF;
     IF (SELECT count(*) FROM snapshot_runs WHERE status = 'reconciled' AND pinned_block_hash = decode(repeat('11', 32), 'hex')) <> 1 THEN RAISE EXCEPTION 'pinned snapshot did not reconcile'; END IF;
     IF (SELECT count(*) FROM snapshot_holders WHERE run_id = '00000000-0000-4000-8000-000000000011') <> 1 THEN RAISE EXCEPTION 'snapshot holder not persisted'; END IF;
+    IF (SELECT count(*) FROM artifact_objects) <> 2 THEN RAISE EXCEPTION 'content-addressed artifact objects missing'; END IF;
+    IF (SELECT count(*) FROM migration_artifacts WHERE artifact_kind='account_mapping') <> 1 THEN RAISE EXCEPTION 'migration artifact link missing'; END IF;
+    IF (SELECT count(*) FROM artifact_retention_events WHERE artifact_object_id='00000000-0000-4000-8000-000000000021') <> 2 THEN RAISE EXCEPTION 'legal hold audit events missing'; END IF;
+    IF (SELECT count(*) FROM artifact_access_events WHERE action='uploaded' AND outcome='success') <> 1 THEN RAISE EXCEPTION 'artifact access audit missing'; END IF;
 END;
 $$;
