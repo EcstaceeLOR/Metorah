@@ -33,6 +33,7 @@ jobs:
       - run: python -m unittest discover -s test -p test_orchestrator.py -v
       - run: python -m unittest discover -s test -p test_snapshot_worker.py -v
       - run: python -m unittest discover -s test -p test_artifacts.py -v
+      - run: python -m unittest discover -s test -p test_destination_indexer.py -v
       - run: python -m unittest discover -s test -p test_release_policy.py -v
       - run: python -m unittest discover -s test -p test_enumeration.py -v
       - run: python -m unittest discover -s test -p test_bindings.py -v
