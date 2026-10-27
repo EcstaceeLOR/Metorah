@@ -112,6 +112,8 @@ class DestinationTests(unittest.TestCase):
         self.rpc.blocks[2] = {"hash": h(999), "parentHash": h(101)}
         self.rpc.blocks[3] = {"hash": h(1000), "parentHash": h(999)}
         self.rpc.blocks[4] = {"hash": h(1001), "parentHash": h(1000)}
+        for number in range(5, 17):
+            self.rpc.blocks[number] = {"hash": h(997 + number), "parentHash": h(996 + number)}
         self.rpc.logs = []
         indexer.scan()
         self.assertEqual(self.projection.events_by_topic(TOPIC), [])
@@ -143,6 +145,8 @@ class DestinationTests(unittest.TestCase):
             self.rpc.blocks[2] = {"hash": h(999), "parentHash": h(101)}
             self.rpc.blocks[3] = {"hash": h(1000), "parentHash": h(999)}
             self.rpc.blocks[4] = {"hash": h(1001), "parentHash": h(1000)}
+        for number in range(5, 17):
+            self.rpc.blocks[number] = {"hash": h(997 + number), "parentHash": h(996 + number)}
             self.rpc.logs = []
             indexer = DestinationIndexer(self.rpc, self.config, store.load(), store)
             indexer.scan()
